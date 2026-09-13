@@ -167,6 +167,13 @@ namespace doriax{
         void createTorus(MeshComponent& mesh, float radius=1, float ringRadius=0.5, unsigned int sides=36, unsigned int rings=16);
         bool canMergeStaticModel(const ModelComponent& model, const MeshComponent& mesh, std::string* reason = nullptr) const;
         bool canEditModelHierarchy(const ModelComponent& model, std::string* reason = nullptr) const;
+        // Whether a part or local group can move without breaking the model's animation.
+        bool canEditModelPart(const ModelComponent& model, Entity part, std::string* reason = nullptr) const;
+        // Where the file puts each node (by glTF index): its parent's entity, or the model on the flat path
+        std::map<int, Entity> getModelNodeDefaultParents(Entity modelEntity, const ModelComponent& model) const;
+        // The glTF node name, empty when the file has none or the model is not loaded
+        static std::string getModelNodeName(const ModelComponent& model, int nodeIdx);
+        bool hasCustomMeshParenting(Entity modelEntity, const ModelComponent& model) const;
 
         // Canonical form of a model path: the same file spelled in different ways maps to one key.
         static std::string getModelFilenameKey(const std::string& filename);
@@ -194,7 +201,7 @@ namespace doriax{
         void clearMeshNodeMapping(ModelComponent& model);
         void destroyModel(ModelComponent& model);
 
-        void resetModelToBindPose(ModelComponent& model);
+        void resetModelToBindPose(Entity entity, ModelComponent& model);
 
         bool raycastTerrainSurface(const Ray& ray, TerrainComponent& terrain, Transform& transform, Vector3& worldPoint);
         // Height and normal in terrain-local space, the surface the foliage scatter uses

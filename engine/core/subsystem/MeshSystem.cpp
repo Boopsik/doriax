@@ -1738,13 +1738,113 @@ bool MeshSystem::canEditModelHierarchy(const ModelComponent& model, std::string*
     if (model.mergeStaticMeshes || model.meshNodesMapping.empty()) {
         return reject("The model does not have separate mesh parts");
     }
-    // A node hierarchy or a skin means the transforms are driven by the model itself
-    if (!model.nodesIdMapping.empty() || !model.gltfModel->skins.empty()) {
-        return reject("Animated and skinned models cannot be reparented");
-    }
 
     if (reason) reason->clear();
     return true;
+}
+
+bool MeshSystem::canEditModelPart(const ModelComponent& model, Entity part, std::string* reason) const {
+    auto reject = [reason](const char* message) {
+        if (reason) *reason = message;
+        return false;
+    };
+    if (reason) reason->clear();
+
+    if (scene->findComponent<BoneComponent>(part)) {
+        return reject("Joints cannot be reparented");
+    }
+    for (const auto& bone : model.bonesIdMapping) {
+        if (scene->isParentOf(part, bone.second)) {
+            return reject("Parts holding joints cannot be reparented");
+        }
+    }
+    if (!model.gltfModel) {
+        return true;
+    }
+
+    const std::vector<tinygltf::Node>& nodes = model.gltfModel->nodes;
+    std::vector<bool> animated(nodes.size(), false);
+    for (const auto& animation : model.gltfModel->animations) {
+        for (const auto& channel : animation.channels) {
+            if (channel.target_path != "weights" && isValidGLTFIndex(channel.target_node, nodes)) {
+                animated[channel.target_node] = true;
+            }
+        }
+    }
+    std::vector<int> parents(nodes.size(), -1);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        for (int child : nodes[i].children) {
+            if (isValidGLTFIndex(child, nodes)) {
+                parents[child] = static_cast<int>(i);
+            }
+        }
+    }
+    // Keyframes are local to the glTF parent, so the file's ancestry is what matters, not
+    // where the user put the part
+    auto inheritsAnimation = [&](int nodeIdx) {
+        for (size_t depth = 0; depth < nodes.size() && parents[nodeIdx] >= 0; depth++) {
+            nodeIdx = parents[nodeIdx];
+            if (animated[nodeIdx]) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    for (const auto& meshNode : model.meshNodesMapping) {
+        if (!isValidGLTFIndex(meshNode.first, nodes)) {
+            continue;
+        }
+        if (meshNode.second == part && animated[meshNode.first]) {
+            return reject("Animated parts cannot be reparented");
+        }
+        // Skinning ignores the mesh transform, but a rigid mesh would lose the animation it inherits
+        if (nodes[meshNode.first].skin < 0 && (meshNode.second == part || scene->isParentOf(part, meshNode.second))
+                && inheritsAnimation(meshNode.first)) {
+            return reject("Parts inheriting animation cannot be reparented");
+        }
+    }
+
+    return true;
+}
+
+std::string MeshSystem::getModelNodeName(const ModelComponent& model, int nodeIdx) {
+    if (!model.gltfModel || !isValidGLTFIndex(nodeIdx, model.gltfModel->nodes)) {
+        return "";
+    }
+    return model.gltfModel->nodes[nodeIdx].name;
+}
+
+std::map<int, Entity> MeshSystem::getModelNodeDefaultParents(Entity modelEntity, const ModelComponent& model) const {
+    std::map<int, Entity> parents;
+    for (const auto& node : model.meshNodesMapping) {
+        parents[node.first] = modelEntity;
+    }
+    for (const auto& node : model.nodesIdMapping) {
+        parents[node.first] = modelEntity;
+    }
+    if (model.gltfModel) {
+        for (const auto& node : model.nodesIdMapping) {
+            if (isValidGLTFIndex(node.first, model.gltfModel->nodes)) {
+                for (int child : model.gltfModel->nodes[node.first].children) {
+                    parents[child] = node.second;
+                }
+            }
+        }
+    }
+    return parents;
+}
+
+bool MeshSystem::hasCustomMeshParenting(Entity modelEntity, const ModelComponent& model) const {
+    std::map<int, Entity> defaults = getModelNodeDefaultParents(modelEntity, model);
+    for (const auto& node : model.meshNodesMapping) {
+        Transform* transform = scene->findComponent<Transform>(node.second);
+        auto defaultParent = defaults.find(node.first);
+        if (transform && defaultParent != defaults.end() && transform->parent != defaultParent->second) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool MeshSystem::canMergeStaticModel(const ModelComponent& model, const MeshComponent& mesh,
@@ -5675,11 +5775,16 @@ void MeshSystem::destroyModel(ModelComponent& model){
     model.loadedMergeStaticMeshes = false;
 }
 
-void MeshSystem::resetModelToBindPose(ModelComponent& model){
+void MeshSystem::resetModelToBindPose(Entity entity, ModelComponent& model){
     if (model.gltfModel && !model.nodesIdMapping.empty()) {
+        std::map<int, Entity> defaults = getModelNodeDefaultParents(entity, model);
         for (const auto& node : model.nodesIdMapping) {
             Transform* transform = scene->findComponent<Transform>(node.second);
             if (!transform || !isValidGLTFIndex(node.first, model.gltfModel->nodes))
+                continue;
+            // A part the user moved keeps its own local; the file's local is relative to another parent
+            auto defaultParent = defaults.find(node.first);
+            if (defaultParent != defaults.end() && transform->parent != defaultParent->second)
                 continue;
             getGLTFNodeMatrix(node.first, model).decompose(
                 transform->position, transform->scale, transform->rotation);

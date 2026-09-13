@@ -32,6 +32,8 @@ public:
     static Entity getParentModel(Scene* scene, Entity entity);
     // Model owning the imported parts an entity is or contains, never a model itself
     static Entity getModelBranchOwner(Scene* scene, Entity entity);
+    // Any entity the loader generated for the model: nodes, parts, bones, skeleton
+    static bool isModelNode(const ModelComponent& model, Entity entity);
     static bool canEditModelBranch(Scene* scene, Entity entity, std::string* reason = nullptr);
     static bool hasCustomMeshParenting(Scene* scene, Entity model);
     static Entity getEffectiveParent(Scene* scene, Entity entity);

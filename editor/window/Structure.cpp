@@ -1266,6 +1266,8 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
         } else {
             if (node.canEditModelHierarchy) {
                 ImGui::SetItemTooltip("Entity: %u\nDrag to organize the parts of this model", node.id);
+            } else if (!node.hierarchyReason.empty()) {
+                ImGui::SetItemTooltip("Entity: %u\n%s", node.id, node.hierarchyReason.c_str());
             } else {
                 ImGui::SetItemTooltip("Entity: %u", node.id);
             }
@@ -1659,10 +1661,19 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
 
                         if (ImGui::MenuItem(ICON_FA_SITEMAP "  Reset mesh parenting", nullptr, false, !node.isLocked && canEditHierarchy)) {
                             MultiPropertyCmd* resetCmd = new MultiPropertyCmd();
-                            for (const auto& meshNode : model->meshNodesMapping) {
-                                if (selectedScene->scene->getComponent<Transform>(meshNode.second).parent != node.id) {
+                            std::map<int, Entity> defaults = selectedScene->scene->getSystem<MeshSystem>()->getModelNodeDefaultParents(node.id, *model);
+                            // Move descendants first so a reversed parent/child arrangement can be reset.
+                            std::vector<std::pair<int, Entity>> parts(model->meshNodesMapping.begin(), model->meshNodesMapping.end());
+                            std::sort(parts.begin(), parts.end(), [&](const auto& a, const auto& b) {
+                                return ProjectUtils::getTransformIndex(selectedScene->scene, a.second) >
+                                    ProjectUtils::getTransformIndex(selectedScene->scene, b.second);
+                            });
+                            for (const auto& meshNode : parts) {
+                                auto defaultIt = defaults.find(meshNode.first);
+                                Entity defaultParent = defaultIt != defaults.end() ? defaultIt->second : node.id;
+                                if (selectedScene->scene->getComponent<Transform>(meshNode.second).parent != defaultParent) {
                                     resetCmd->addCommand(std::make_unique<MoveEntityOrderCmd>(
-                                        project, selectedScene->id, meshNode.second, node.id, InsertionType::INTO));
+                                        project, selectedScene->id, meshNode.second, defaultParent, InsertionType::INTO));
                                 }
                             }
                             CommandHandle::get(selectedScene->id)->addCommandNoMerge(resetCmd);
@@ -2244,7 +2255,7 @@ void editor::Structure::rebuildEntityTree(SceneProject* sceneProject, TreeNode& 
             child.hasTransform = true;
             child.isLocked = ProjectUtils::isEntityLocked(sceneProject->scene, entity)
                 || ProjectUtils::getModelBranchOwner(sceneProject->scene, entity) != NULL_ENTITY;
-            child.canEditModelHierarchy = ProjectUtils::canEditModelBranch(sceneProject->scene, entity);
+            child.canEditModelHierarchy = ProjectUtils::canEditModelBranch(sceneProject->scene, entity, &child.hierarchyReason);
             child.order = order++;
             child.name = sceneProject->scene->getEntityName(entity);
             auto bundleIt = bundleEntityPaths.find(entity);

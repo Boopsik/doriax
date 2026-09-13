@@ -430,6 +430,11 @@ Entity editor::ProjectUtils::getModelBranchOwner(Scene* scene, Entity entity) {
         }
     }
 
+    // Bones and transform-only nodes are the model's own structure, not something to organize
+    if (isModelNode(model, entity)) {
+        return NULL_ENTITY;
+    }
+
     // A local group answers to the model only while it holds imported parts
     for (const auto& node : model.meshNodesMapping) {
         if (scene->isParentOf(entity, node.second)) {
@@ -440,6 +445,23 @@ Entity editor::ProjectUtils::getModelBranchOwner(Scene* scene, Entity entity) {
     return NULL_ENTITY;
 }
 
+bool editor::ProjectUtils::isModelNode(const ModelComponent& model, Entity entity) {
+    if (entity == NULL_ENTITY) {
+        return false;
+    }
+    if (entity == model.skeleton) {
+        return true;
+    }
+    for (const auto* mapping : {&model.nodesIdMapping, &model.meshNodesMapping, &model.bonesIdMapping}) {
+        for (const auto& node : *mapping) {
+            if (node.second == entity) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool editor::ProjectUtils::canEditModelBranch(Scene* scene, Entity entity, std::string* reason) {
     if (reason) reason->clear();
 
@@ -448,18 +470,13 @@ bool editor::ProjectUtils::canEditModelBranch(Scene* scene, Entity entity, std::
         return false;
     }
 
-    return scene->getSystem<MeshSystem>()->canEditModelHierarchy(scene->getComponent<ModelComponent>(owner), reason);
+    const ModelComponent& model = scene->getComponent<ModelComponent>(owner);
+    std::shared_ptr<MeshSystem> meshSys = scene->getSystem<MeshSystem>();
+    return meshSys->canEditModelHierarchy(model, reason) && meshSys->canEditModelPart(model, entity, reason);
 }
 
 bool editor::ProjectUtils::hasCustomMeshParenting(Scene* scene, Entity model) {
-    for (const auto& node : scene->getComponent<ModelComponent>(model).meshNodesMapping) {
-        Transform* transform = scene->findComponent<Transform>(node.second);
-        if (transform && transform->parent != model) {
-            return true;
-        }
-    }
-
-    return false;
+    return scene->getSystem<MeshSystem>()->hasCustomMeshParenting(model, scene->getComponent<ModelComponent>(model));
 }
 
 Entity editor::ProjectUtils::getLockedEntityParent(Scene* scene, Entity entity){
@@ -618,6 +635,20 @@ bool editor::ProjectUtils::canMoveLockedEntityOrder(Scene* scene, Entity source,
             return reject("Imported parts must stay inside their own model");
         }
         if (parent != getEffectiveParent(scene, source) && !canEditModelBranch(scene, source, reason)) {
+            // A locked part can still go back under the node the file gave it
+            const ModelComponent& model = scene->getComponent<ModelComponent>(owner);
+            std::shared_ptr<MeshSystem> meshSys = scene->getSystem<MeshSystem>();
+            if (!meshSys->canEditModelHierarchy(model)) {
+                return false;
+            }
+            std::map<int, Entity> defaults = meshSys->getModelNodeDefaultParents(owner, model);
+            for (const auto& node : model.meshNodesMapping) {
+                auto defaultParent = defaults.find(node.first);
+                if (node.second == source && defaultParent != defaults.end() && defaultParent->second == parent) {
+                    if (reason) reason->clear();
+                    return true;
+                }
+            }
             return false;
         }
 

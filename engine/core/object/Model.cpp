@@ -284,5 +284,5 @@ void Model::setMorphWeight(int id, float value){
 
 void Model::resetToBindPose(){
     ModelComponent& model = getComponent<ModelComponent>();
-    scene->getSystem<MeshSystem>()->resetModelToBindPose(model);
+    scene->getSystem<MeshSystem>()->resetModelToBindPose(entity, model);
 }

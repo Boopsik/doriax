@@ -44,13 +44,48 @@ namespace doriax::editor{
         // Mesh children the reload keeps, so undo only removes the ones it created
         std::vector<Entity> reusedEntities;
 
+        // A node hierarchy is rebuilt rather than refreshed, so a same-file reload records what the
+        // user arranged and puts it back by node name once the new nodes exist.
+        struct NodeRef {
+            int index = -1;
+            std::string name;
+        };
+        struct LocalPose {
+            Vector3 position;
+            Quaternion rotation;
+            Vector3 scale;
+        };
+        // An entity the user hung on a model node; parked at the model while the node is rebuilt
+        struct ParkedEntity {
+            Entity entity = NULL_ENTITY;
+            Entity oldParent = NULL_ENTITY;
+            NodeRef parent;
+            LocalPose pose;
+        };
+        // An imported part the user moved away from where the file puts it
+        struct MovedPart {
+            NodeRef part;
+            Entity userParent = NULL_ENTITY; // a local group or the model itself
+            NodeRef nodeParent;              // when it was dropped on another model node
+            LocalPose pose;
+        };
+        std::vector<ParkedEntity> parkedEntities;
+        std::vector<MovedPart> movedParts;
+
         // The generated mesh entities are destroyed before the load, so their submesh edits are
         // taken aside here. Empty when the asset itself changed.
         MeshSystem::SubmeshOverrides savedSubmeshOverrides;
 
-        static std::vector<Entity> collectModelDeleteRoots(Scene* scene, Entity modelEntity,
-                                                           const ModelComponent& model);
+        static std::vector<Entity> collectModelDeleteRoots(Scene* scene, const ModelComponent& model);
         static bool isMappedMeshNode(const ModelComponent& model, Entity entity);
+        static NodeRef makeNodeRef(const ModelComponent& model, int nodeIndex);
+        static Entity findModelNode(const ModelComponent& model, const NodeRef& ref);
+        static void attachLocal(Scene* scene, Entity child, Entity parent, const LocalPose& pose);
+
+        void recordArrangement(SceneProject* sceneProject, const ModelComponent& model);
+        void restoreArrangement(SceneProject* sceneProject, const ModelComponent& model);
+        void parkEntities(SceneProject* sceneProject);
+        void unparkEntities(SceneProject* sceneProject);
 
         bool tryLoad();
         void finalizeLoad();

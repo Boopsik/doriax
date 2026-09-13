@@ -30,6 +30,7 @@ namespace doriax::editor{
         bool isBone = false;
         bool isLocked = false;
         bool canEditModelHierarchy = false;
+        std::string hierarchyReason;        // Why an imported part stays put, shown in its tooltip
         bool separator = false;
         bool hasTransform = false;
         bool matchesSearch = false;         // Node matches search term

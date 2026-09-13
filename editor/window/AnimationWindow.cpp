@@ -452,7 +452,7 @@ void editor::AnimationWindow::applyPreviewModelBindPose(Scene* scene) const {
     for (Entity modelEntity : modelEntities) {
         ModelComponent* model = scene->findComponent<ModelComponent>(modelEntity);
         if (model) {
-            meshSystem->resetModelToBindPose(*model);
+            meshSystem->resetModelToBindPose(modelEntity, *model);
         }
     }
 }
