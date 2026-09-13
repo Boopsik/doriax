@@ -677,7 +677,7 @@ void editor::App::executeMenuCommand(const PlatformMenuCommand& command){
                 "Ctrl+Z    Undo\n"
                 "Ctrl+Shift+Z    Redo\n"
                 "Ctrl+D    Duplicate selection\n"
-                "Delete    Delete selection\n\n"
+                "Delete / Backspace    Delete selection\n\n"
                 "PLAYBACK\n"
                 "F5    Run current scene / Resume\n"
                 "F6    Pause\n"

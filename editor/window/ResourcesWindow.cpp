@@ -2726,7 +2726,8 @@ void editor::ResourcesWindow::show() {
     windowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if (windowFocused) {
-        if (!selectedFiles.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        if (!selectedFiles.empty() && !ImGui::GetIO().WantTextInput &&
+            (ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace))) {
             // Trigger delete confirmation (handled in renderFileListing)
             showDeleteConfirmation = true;
         }
