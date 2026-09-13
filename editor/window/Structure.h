@@ -79,6 +79,11 @@ namespace doriax::editor{
         uint32_t selectionAnchorSceneId = NULL_PROJECT_SCENE;
         Entity selectionAnchorEntity = NULL_ENTITY;
 
+        // Selection made outside this panel: expand its ancestors and scroll to its row
+        EntitySelectionEntry revealRequest;
+        std::unordered_set<const TreeNode*> revealOpenNodes;
+        const TreeNode* revealTargetNode = nullptr;
+
         std::vector<Entity> getTopLevelSelectedEntities(Entity draggedEntity);
         std::vector<Entity> getMovableDraggedEntities(Entity draggedEntity, const TreeNode& targetNode, InsertionType type);
         void moveDraggedEntitiesToTarget(const std::vector<Entity>& draggedEntities, Entity target, InsertionType type);
@@ -97,6 +102,7 @@ namespace doriax::editor{
         void showIconMenu();
         void showTreeNode(TreeNode& node);
         void syncSceneWindowSelectionHierarchy(const TreeNode& node, uint32_t collapsedSceneId = NULL_PROJECT_SCENE, Entity collapsedAncestor = NULL_ENTITY);
+        bool collectRevealPath(TreeNode& node);
         void pushNodeImGuiId(const TreeNode& node);
         void popNodeImGuiId(const TreeNode& node);
         void drawInsertionMarker(const ImVec2& p1, const ImVec2& p2);
@@ -121,6 +127,7 @@ namespace doriax::editor{
         Structure(Project* project, SceneWindow* sceneWindow);
 
         void show();
+        void revealEntity(uint32_t sceneId, Entity entity);
         void setOpen(bool open);
         bool isOpen() const;
     };

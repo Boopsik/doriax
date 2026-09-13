@@ -1163,6 +1163,10 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
         openParent = NULL_ENTITY;
     }
 
+    if (revealOpenNodes.find(&node) != revealOpenNodes.end()) {
+        ImGui::SetNextItemOpen(true);
+    }
+
     // Push colors for visual feedback
     bool pushedHighlightColor = false;
 
@@ -1210,6 +1214,12 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
             sceneCollapsedEntities.erase(node.id);
         }
     }
+
+    // Only scroll an off-screen row, so selecting in the viewport does not jerk the tree
+    if (revealTargetNode == &node && !ImGui::IsItemVisible()) {
+        ImGui::SetScrollHereY(0.5f);
+    }
+
     bool nodeHovered = ImGui::IsItemHovered();
     bool nodeActive = ImGui::IsItemActive();
     bool nodeRightClicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
@@ -1926,6 +1936,27 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
     popNodeImGuiId(node);
 }
 
+void editor::Structure::revealEntity(uint32_t sceneId, Entity entity) {
+    revealRequest = {sceneId, entity};
+}
+
+bool editor::Structure::collectRevealPath(TreeNode& node) {
+    bool isEntityNode = !node.isScene && !node.isChildScene;
+    if (isEntityNode && node.id == revealRequest.entity && getNodeSceneId(node) == revealRequest.sceneId) {
+        revealTargetNode = &node;
+        return true;
+    }
+
+    for (auto& child : node.children) {
+        if (collectRevealPath(child)) {
+            revealOpenNodes.insert(&node);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void editor::Structure::syncSceneWindowSelectionHierarchy(const TreeNode& node, uint32_t collapsedSceneId, Entity collapsedAncestor) {
     if (node.isScene) {
         sceneWindow->beginStructureVisibilityUpdate(node.id);
@@ -1944,8 +1975,9 @@ void editor::Structure::syncSceneWindowSelectionHierarchy(const TreeNode& node, 
             collapsedAncestor = NULL_ENTITY;
         }
 
+        // Nearest collapsed ancestor, so the scene window can walk the chain outwards
         auto sceneIt = collapsedEntities.find(sceneId);
-        if (collapsedAncestor == NULL_ENTITY && !node.children.empty()
+        if (!node.children.empty()
             && sceneIt != collapsedEntities.end() && sceneIt->second.find(node.id) != sceneIt->second.end()) {
             collapsedSceneId = sceneId;
             collapsedAncestor = node.id;
@@ -2371,6 +2403,14 @@ void editor::Structure::show(){
 
     visibleEntitySelectionOrder.clear();
     collectVisibleEntitySelectionOrder(root, strlen(searchBuffer) > 0);
+
+    revealOpenNodes.clear();
+    revealTargetNode = nullptr;
+    if (revealRequest.entity != NULL_ENTITY) {
+        collectRevealPath(root);
+        revealRequest = {};
+    }
+
     showTreeNode(root);
     syncSceneWindowSelectionHierarchy(root);
     float treeLastCursorY = ImGui::GetCursorScreenPos().y;

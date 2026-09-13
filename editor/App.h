@@ -291,6 +291,7 @@ namespace doriax::editor{
         ImageViewerWindow* getImageViewerWindow() const override;
         ResourcesWindow* getResourcesWindow() const;
         AnimationWindow* getAnimationWindow() const;
+        Structure* getStructureWindow() const;
         TerrainEditWindow* getTerrainEditWindow() const;
 
         // Window settings methods. Sizes are physical pixels, converted between

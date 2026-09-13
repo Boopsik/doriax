@@ -62,8 +62,8 @@ namespace doriax::editor {
 
         std::map<uint32_t, bool> hasNotification;
 
-        // Entity children hidden below a collapsed Structure node select their
-        // nearest visible ancestor when picked in the scene viewport.
+        // Entity children hidden below a collapsed Structure node select an ancestor
+        // when picked in the viewport. Each maps to its nearest collapsed ancestor.
         std::unordered_map<uint32_t, std::unordered_map<Entity, Entity>> structureSelectionParents;
 
         std::vector<uint32_t> closeSceneQueue;
@@ -84,7 +84,7 @@ namespace doriax::editor {
         void requestOpenParentScene(uint32_t childSceneId, uint32_t parentSceneId);
         void drawParentSceneButton(const SceneProject& sceneProject);
         std::string getWindowTitle(const SceneProject& sceneProject) const;
-        Entity resolveStructureSelection(uint32_t sceneId, Entity entity) const;
+        Entity resolveStructureSelection(uint32_t viewportSceneId, uint32_t sceneId, Entity entity) const;
         Entity findSelectableObjectByRay(uint32_t sceneId, float x, float y, uint32_t* outSceneId = nullptr);
         bool selectObjectByRay(uint32_t sceneId, float x, float y, bool shiftPressed);
         ImVec2 canvasFramebufferScale(uint32_t sceneId) const;

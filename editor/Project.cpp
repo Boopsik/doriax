@@ -4863,6 +4863,18 @@ Entity editor::Project::findObjectByRay(uint32_t sceneId, float x, float y, uint
     return NULL_ENTITY;
 }
 
+bool editor::Project::isEntityPickable(uint32_t sceneId, Entity entity) const{
+    const SceneProject* scenedata = getScene(sceneId);
+    if (!scenedata || !scenedata->scene) return false;
+
+    Scene* scene = scenedata->scene;
+    if (!scene->isEntityCreated(entity)) return false;
+    if (!scene->getSignature(entity).test(scene->getComponentId<Transform>())) return false;
+
+    AABB aabb = getEntityLocalAABB(scene, entity);
+    return !aabb.isNull() && !aabb.isInfinite();
+}
+
 bool editor::Project::selectObjectByRay(uint32_t sceneId, float x, float y, bool shiftPressed){
     SceneProject* scenedata = getScene(sceneId);
 

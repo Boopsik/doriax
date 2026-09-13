@@ -143,22 +143,38 @@ void editor::SceneWindow::setStructureSelectionParent(uint32_t sceneId, Entity e
     structureSelectionParents[sceneId][entity] = selectionParent;
 }
 
-Entity editor::SceneWindow::resolveStructureSelection(uint32_t sceneId, Entity entity) const {
+Entity editor::SceneWindow::resolveStructureSelection(uint32_t viewportSceneId, uint32_t sceneId, Entity entity) const {
     auto sceneIt = structureSelectionParents.find(sceneId);
     if (sceneIt == structureSelectionParents.end()) {
         return entity;
     }
 
-    auto entityIt = sceneIt->second.find(entity);
-    if (entityIt == sceneIt->second.end()) {
+    const SceneProject* sceneProject = project->getScene(sceneId);
+    if (!sceneProject || !sceneProject->scene) {
         return entity;
     }
 
-    const SceneProject* sceneProject = project->getScene(sceneId);
-    if (!sceneProject || !sceneProject->scene || !sceneProject->scene->isEntityCreated(entityIt->second)) {
-        return entity;
+    // The 2D gizmo is drawn from the entity's own bounds, so a group parent without any
+    // would be an invisible selection. The other gizmos outline the whole family.
+    const SceneProject* viewportScene = project->getScene(viewportSceneId);
+    bool outlinesFamily = viewportScene && viewportScene->sceneRender
+        && viewportScene->sceneRender->getToolsLayer()->getGizmoSelected() != GizmoSelected::OBJECT2D;
+
+    // Keep the outermost collapsed ancestor that can be selected, else the entity itself
+    Entity resolved = entity;
+    auto entityIt = sceneIt->second.find(entity);
+    while (entityIt != sceneIt->second.end()) {
+        Entity ancestor = entityIt->second;
+        if (!sceneProject->scene->isEntityCreated(ancestor)) {
+            break;
+        }
+        if (outlinesFamily || project->isEntityPickable(sceneId, ancestor)) {
+            resolved = ancestor;
+        }
+        entityIt = sceneIt->second.find(ancestor);
     }
-    return entityIt->second;
+
+    return resolved;
 }
 
 Entity editor::SceneWindow::findSelectableObjectByRay(uint32_t sceneId, float x, float y, uint32_t* outSceneId) {
@@ -167,7 +183,7 @@ Entity editor::SceneWindow::findSelectableObjectByRay(uint32_t sceneId, float x,
     if (outSceneId) {
         *outSceneId = hitSceneId;
     }
-    return resolveStructureSelection(hitSceneId, hitEntity);
+    return resolveStructureSelection(sceneId, hitSceneId, hitEntity);
 }
 
 bool editor::SceneWindow::selectObjectByRay(uint32_t sceneId, float x, float y, bool shiftPressed) {
@@ -190,6 +206,9 @@ bool editor::SceneWindow::selectObjectByRay(uint32_t sceneId, float x, float y, 
                 project->clearAllSelections(sceneId);
             }
             project->addSelectedEntity(hitSceneId, hitEntity);
+            if (Structure* structure = Backend::getApp().getStructureWindow()) {
+                structure->revealEntity(hitSceneId, hitEntity);
+            }
             return true;
         }
 

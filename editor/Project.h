@@ -652,6 +652,8 @@ namespace doriax::editor{
         std::vector<uint32_t> getChildScenes(uint32_t sceneId) const;
 
         Entity findObjectByRay(uint32_t sceneId, float x, float y, uint32_t* outSceneId = nullptr);
+        // A viewport click only lands on entities with a Transform and bounds of their own
+        bool isEntityPickable(uint32_t sceneId, Entity entity) const;
 
         bool selectObjectByRay(uint32_t sceneId, float x, float y, bool shiftPressed);
         bool selectObjectsByRect(uint32_t sceneId, Vector2 start, Vector2 end);
