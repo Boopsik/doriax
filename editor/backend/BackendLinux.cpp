@@ -1842,8 +1842,8 @@ void processEvent(XEvent& event) {
                 float vertical = 0.0f;
                 if (event.xbutton.button == Button4) vertical = 1.0f;
                 if (event.xbutton.button == Button5) vertical = -1.0f;
-                if (event.xbutton.button == 6) horizontal = -1.0f;
-                if (event.xbutton.button == 7) horizontal = 1.0f;
+                if (event.xbutton.button == 6) horizontal = 1.0f;
+                if (event.xbutton.button == 7) horizontal = -1.0f;
                 io.AddMouseWheelEvent(horizontal, vertical);
             } else {
                 const int button = mouseButton(event.xbutton.button);
