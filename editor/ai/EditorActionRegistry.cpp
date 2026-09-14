@@ -874,6 +874,36 @@ const std::vector<ToolDefinition>& cachedTools() {
             false
         },
         {
+            "inspect_shader_uniforms",
+            "List the custom uniforms of a forked shader: the members its u_vs_customParams / u_fs_customParams blocks declare (or u_fs_postParams for a post-process pass), each with its GLSL type, whether the engine writes it (time, resolution), and the stored value. Give entity_id/entity_name (component optional, auto-detected) for a Mesh/UI/Points/Lines/Sky component, or pass_index for a scene post-process pass. The engine reflects the compiled shader, so members appear once the fork has built; a fork that declares no block lists none. Use before set_shader_uniform to learn the member names.",
+            objectSchema({
+                {"scene_id", integerSchema("Scene id. Omit to use the selected scene")},
+                {"entity_id", integerSchema("Entity id of a component with a custom shader")},
+                {"entity_name", stringSchema("Entity name, used only when entity_id is omitted")},
+                {"component", stringSchema("Renderable component name (MeshComponent, UIComponent, PointsComponent, LinesComponent, SkyComponent). Omit to auto-detect")},
+                {"pass_index", integerSchema("Post-process pass index (0 = first pass of the scene chain), instead of an entity")}
+            }),
+            true
+        },
+        {
+            "set_shader_uniform",
+            "Set or remove one custom uniform value of a forked shader, by member name, as one undoable step. Values live on the component (shaderUniforms) or on the post-process pass and are uploaded to the u_vs_customParams / u_fs_customParams block (u_fs_postParams for a pass) member of the same name; a value is kept as a Vector4, so give number_value for float/int members, vector2_value/vector3_value/vector4_value for vec2/vec3/vec4 (int members truncate). Give entity_id/entity_name (component optional) for a Mesh/UI/Points/Lines/Sky component, or pass_index for a scene post-process pass. time and resolution are written by the engine and cannot be set. Set remove=true to drop the value (the member reads zero again). Names the shader does not declare are stored but unused; use inspect_shader_uniforms to see the declared members.",
+            objectSchema({
+                {"scene_id", integerSchema("Scene id. Omit to use the selected scene")},
+                {"entity_id", integerSchema("Entity id of a component with a custom shader")},
+                {"entity_name", stringSchema("Entity name, used only when entity_id is omitted")},
+                {"component", stringSchema("Renderable component name (MeshComponent, UIComponent, PointsComponent, LinesComponent, SkyComponent). Omit to auto-detect")},
+                {"pass_index", integerSchema("Post-process pass index (0 = first pass of the scene chain), instead of an entity")},
+                {"name", stringSchema("Uniform member name as declared in the shader block, e.g. amplitude or tint")},
+                {"number_value", numberSchema("Value for a float or int member")},
+                {"vector2_value", vector2Schema("Value for a vec2 member")},
+                {"vector3_value", vector3Schema("Value for a vec3 member")},
+                {"vector4_value", vector4Schema("Value for a vec4 member")},
+                {"remove", boolSchema("Remove the stored value instead of setting one")}
+            }, {"name"}),
+            false
+        },
+        {
             "search_curated_assets",
             "Search curated model sources. Sketchfab search is metadata-only without user OAuth; Poly Haven API requires a unique User-Agent and may need licensing for commercial API use.",
             objectSchema({
@@ -1522,6 +1552,26 @@ ValidationResult EditorActionRegistry::validate(const std::string& name, const J
         if (hasEntitySelector(arguments) || hasString(arguments, "shader_type")) return ok();
         return fail("fork_shader requires entity_id/entity_name, or shader_type to fork a scene default.");
     }
+    if (name == "inspect_shader_uniforms") {
+        if (hasEntitySelector(arguments) || arguments.contains("pass_index")) return ok();
+        return fail("inspect_shader_uniforms requires entity_id/entity_name, or pass_index for a post-process pass.");
+    }
+    if (name == "set_shader_uniform") {
+        if (!hasEntitySelector(arguments) && !arguments.contains("pass_index")) {
+            return fail("set_shader_uniform requires entity_id/entity_name, or pass_index for a post-process pass.");
+        }
+        if (!hasString(arguments, "name")) return fail("set_shader_uniform requires name.");
+        if (arguments.contains("remove") && !arguments["remove"].is_boolean()) {
+            return fail("set_shader_uniform remove must be a boolean.");
+        }
+        const bool remove = arguments.value("remove", false);
+        const bool hasValue = arguments.contains("number_value") || hasObject(arguments, "vector2_value") ||
+                              hasObject(arguments, "vector3_value") || hasObject(arguments, "vector4_value");
+        if (!remove && !hasValue) {
+            return fail("set_shader_uniform requires number_value, vector2_value, vector3_value or vector4_value (or remove=true).");
+        }
+        return ok();
+    }
     if (name == "write_shader_file") {
         if (!hasString(arguments, "path")) return fail("write_shader_file requires path.");
         if (!arguments.contains("content") || !arguments["content"].is_string()) {
@@ -1896,6 +1946,16 @@ std::string EditorActionRegistry::describe(const std::string& name, const Json& 
     }
     if (name == "write_shader_file") {
         return "Write shader " + arguments.value("path", "");
+    }
+    if (name == "inspect_shader_uniforms") {
+        return "Inspect shader uniforms";
+    }
+    if (name == "set_shader_uniform") {
+        const std::string verb = arguments.value("remove", false) ? "Remove" : "Set";
+        if (arguments.contains("pass_index")) {
+            return verb + " post-process uniform " + arguments.value("name", "") + " of pass " + std::to_string(arguments.value("pass_index", 0));
+        }
+        return verb + " shader uniform " + arguments.value("name", "");
     }
     if (name == "create_terrain_heightmap") {
         out << "Create " << arguments.value("mode", "middle")

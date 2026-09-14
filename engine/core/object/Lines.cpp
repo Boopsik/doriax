@@ -209,3 +209,54 @@ void Lines::clearLines(){
         linescomp.needReload = true;
     }
 }
+
+void Lines::setCustomShader(const std::string& path){
+    LinesComponent& lines = getComponent<LinesComponent>();
+
+    if (lines.customShader != path){
+        lines.customShader = path;
+
+        lines.needReload = true;
+    }
+}
+
+std::string Lines::getCustomShader() const{
+    LinesComponent& lines = getComponent<LinesComponent>();
+
+    return lines.customShader;
+}
+
+void Lines::setShaderUniform(const std::string& name, const Vector4& value){
+    LinesComponent& lines = getComponent<LinesComponent>();
+
+    if (ShaderUniforms::set(lines.shaderUniforms, name, value))
+        lines.needUpdateShaderUniforms = true;
+}
+
+void Lines::setShaderUniform(const std::string& name, const Vector3& value){
+    setShaderUniform(name, Vector4(value.x, value.y, value.z, 0.0f));
+}
+
+void Lines::setShaderUniform(const std::string& name, const Vector2& value){
+    setShaderUniform(name, Vector4(value.x, value.y, 0.0f, 0.0f));
+}
+
+void Lines::setShaderUniform(const std::string& name, float value){
+    setShaderUniform(name, Vector4(value, 0.0f, 0.0f, 0.0f));
+}
+
+Vector4 Lines::getShaderUniform(const std::string& name) const{
+    LinesComponent& lines = getComponent<LinesComponent>();
+
+    return ShaderUniforms::get(lines.shaderUniforms, name);
+}
+
+bool Lines::removeShaderUniform(const std::string& name){
+    LinesComponent& lines = getComponent<LinesComponent>();
+
+    if (!ShaderUniforms::remove(lines.shaderUniforms, name))
+        return false;
+
+    lines.needUpdateShaderUniforms = true;
+    return true;
+}

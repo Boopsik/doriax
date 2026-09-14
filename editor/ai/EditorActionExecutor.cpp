@@ -665,6 +665,12 @@ Json vector4Json(const Vector4& value) {
     return Json{{"x", value.x}, {"y", value.y}, {"z", value.z}, {"w", value.w}};
 }
 
+Json shaderUniformValuesJson(const ShaderUniformValues& values) {
+    Json json = Json::object();
+    for (const auto& uniform : values) json[uniform.first] = vector4Json(uniform.second);
+    return json;
+}
+
 Json quaternionJson(const Quaternion& value) {
     return Json{{"w", value.w}, {"x", value.x}, {"y", value.y}, {"z", value.z}};
 }
@@ -867,6 +873,30 @@ bool detectForkableComponent(EntityRegistry* registry, Entity entity, ComponentT
         }
     }
     return false;
+}
+
+// The shader-capable component addressed by entity_id/entity_name, explicit or auto-detected.
+bool resolveShaderComponent(SceneProject* sceneProject, const Json& args, Entity& entity,
+                            ComponentType& component, ShaderType& shaderType, std::string& error) {
+    entity = resolveEntity(sceneProject, args);
+    if (entity == NULL_ENTITY) { error = "Entity not found."; return false; }
+
+    const std::string componentArg = args.value("component", "");
+    if (!componentArg.empty()) {
+        if (!parseComponentType(componentArg, component)) { error = "Unknown component type."; return false; }
+        if (!shaderTypeForComponent(component, shaderType)) {
+            error = "Component does not support custom shaders. Use Mesh/UI/Points/Lines/Sky.";
+            return false;
+        }
+        if (!hasComponent(sceneProject->scene, entity, component)) {
+            error = "Entity has no " + componentArg + ".";
+            return false;
+        }
+    } else if (!detectForkableComponent(sceneProject->scene, entity, component, shaderType)) {
+        error = "Entity has no shader-capable component (Mesh/UI/Points/Lines/Sky).";
+        return false;
+    }
+    return true;
 }
 
 bool parseSceneType(const std::string& typeName, SceneType& type) {
@@ -1283,6 +1313,9 @@ Json propertyValueToJson(Project* project, const std::string& propertyName, cons
                             material.baseColorTexture.getSvgScale())}};
         }
         case PropertyType::Custom:
+            if (propertyName == "shaderUniforms") {
+                return shaderUniformValuesJson(*static_cast<ShaderUniformValues*>(property.ref));
+            }
             return Json{{"unsupported", "custom"}};
     }
     return Json();
@@ -2063,6 +2096,8 @@ ActionResult EditorActionExecutor::dispatch(const std::string& name,
     if (name == "generate_shaders") return generateShaders(arguments, cancel);
     if (name == "fork_shader") return forkShader(arguments);
     if (name == "write_shader_file") return writeShaderFile(arguments);
+    if (name == "inspect_shader_uniforms") return inspectShaderUniforms(arguments);
+    if (name == "set_shader_uniform") return setShaderUniform(arguments);
     if (name == "create_terrain_heightmap") return createTerrainHeightmap(arguments);
     if (name == "import_project_model") return importProjectModel(arguments);
     if (name == "search_curated_assets") return searchCuratedAssets(arguments, cancel);
@@ -4245,24 +4280,11 @@ ActionResult EditorActionExecutor::forkShader(const Json& arguments) {
                              {"scene_property", scenePropertyName}});
     }
 
-    Entity entity = resolveEntity(sceneProject, arguments);
-    if (entity == NULL_ENTITY) return failResult("Entity not found.");
-
-    // Resolve which renderable component to fork for, either explicit or auto-detected.
+    Entity entity;
     ComponentType component;
     ShaderType shaderType;
-    const std::string componentArg = arguments.value("component", "");
-    if (!componentArg.empty()) {
-        if (!parseComponentType(componentArg, component)) return failResult("Unknown component type.");
-        if (!shaderTypeForComponent(component, shaderType)) {
-            return failResult("Component does not support custom shaders. Use Mesh/UI/Points/Lines/Sky.");
-        }
-        if (!hasComponent(sceneProject->scene, entity, component)) {
-            return failResult("Entity has no " + componentArg + ".");
-        }
-    } else if (!detectForkableComponent(sceneProject->scene, entity, component, shaderType)) {
-        return failResult("Entity has no shader-capable component (Mesh/UI/Points/Lines/Sky).");
-    }
+    std::string error;
+    if (!resolveShaderComponent(sceneProject, arguments, entity, component, shaderType, error)) return failResult(error);
 
     // Re-forking would orphan the previous fork's files; require an explicit reset first.
     if (std::string* current = Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, component, "customShader")) {
@@ -4301,6 +4323,236 @@ ActionResult EditorActionExecutor::forkShader(const Json& arguments) {
                     Json{{"custom_shader", base},
                          {"vert_path", base + ".vert"},
                          {"frag_path", base + ".frag"}});
+}
+
+namespace {
+
+const char* shaderUniformTypeName(ShaderUniformType type) {
+    switch (type) {
+        case ShaderUniformType::FLOAT:  return "float";
+        case ShaderUniformType::FLOAT2: return "vec2";
+        case ShaderUniformType::FLOAT3: return "vec3";
+        case ShaderUniformType::FLOAT4: return "vec4";
+        case ShaderUniformType::INT:    return "int";
+        case ShaderUniformType::INT2:   return "ivec2";
+        case ShaderUniformType::INT3:   return "ivec3";
+        case ShaderUniformType::INT4:   return "ivec4";
+        default: return "other";
+    }
+}
+
+// one entry per member name; engine-written names are flagged
+void appendShaderUniformMembers(Json& members, const CustomUniformBlock& block, const ShaderUniformValues& values) {
+    for (const ShaderUniform& uniform : block.members) {
+        bool listed = false;
+        for (const Json& existing : members) {
+            if (existing.value("name", "") == uniform.name) {
+                listed = true;
+                break;
+            }
+        }
+        if (listed) continue;
+
+        const bool reserved = ShaderUniforms::isReserved(uniform.name);
+        const bool editable = ShaderUniforms::isEditable(uniform);
+        Json member = {{"name", uniform.name},
+                       {"type", shaderUniformTypeName(uniform.type)},
+                       {"engine_written", reserved},
+                       {"editable", editable && !reserved}};
+        if (uniform.arrayCount > 1) {
+            member["array_count"] = uniform.arrayCount;
+        }
+        if (!reserved && editable) {
+            member["value"] = vector4Json(ShaderUniforms::get(values, uniform.name));
+            member["has_value"] = ShaderUniforms::has(values, uniform.name);
+        }
+        members.push_back(member);
+    }
+}
+
+void collectComponentShaderUniformMembers(Json& members, EntityRegistry* registry, Entity entity,
+                                          ComponentType component, const ShaderUniformValues& values) {
+    for (const CustomUniformBlock* block : Catalog::getShaderUniformBlocks(registry, entity, component)) {
+        appendShaderUniformMembers(members, *block, values);
+    }
+}
+
+// reflected from the pool; a pass still building or failed lists none
+void collectPassShaderUniformMembers(Json& members, const PostProcessPass& pass, bool& buildFailed) {
+    uint16_t customId = ShaderPool::registerCustomShader(pass.shader);
+    buildFailed = customId != 0 && ShaderPool::isShaderBuildFailed(ShaderType::POSTPROCESS, 0, customId);
+    std::shared_ptr<ShaderRender> shader = ShaderPool::get(ShaderType::POSTPROCESS, 0, customId);
+    if (!buildFailed && shader && shader->isCreated()) {
+        CustomUniformBlock block;
+        block.resolve(shader->shaderData, "u_fs_postParams");
+        appendShaderUniformMembers(members, block, pass.uniforms);
+    }
+}
+
+// the value is stored either way; the note says when the shader cannot use it
+std::string shaderUniformSetNote(const Json& members, const std::string& name, bool& declared) {
+    declared = false;
+    for (const Json& member : members) {
+        if (member.value("name", "") == name) {
+            declared = true;
+            if (!member.value("editable", false)) {
+                return " Note: '" + name + "' is a matrix or array member, which takes no value and stays zero; "
+                       "declare one scalar or vector member per value instead.";
+            }
+            return "";
+        }
+    }
+    return " Note: the loaded shader declares no member named '" + name +
+           "' (it may still be building, or the name differs); the value is kept and applies once declared.";
+}
+
+bool parseShaderUniformValue(const Json& args, Vector4& out, std::string& error) {
+    if (args.contains("vector4_value")) {
+        if (!parseVector4(args["vector4_value"], out)) { error = "vector4_value must have x, y, z and w."; return false; }
+        return true;
+    }
+    if (args.contains("vector3_value")) {
+        Vector3 v;
+        if (!parseVector3(args["vector3_value"], v)) { error = "vector3_value must have x, y and z."; return false; }
+        out = Vector4(v.x, v.y, v.z, 0.0f);
+        return true;
+    }
+    if (args.contains("vector2_value")) {
+        Vector2 v;
+        if (!parseVector2(args["vector2_value"], v)) { error = "vector2_value must have x and y."; return false; }
+        out = Vector4(v.x, v.y, 0.0f, 0.0f);
+        return true;
+    }
+    if (args.contains("number_value") && args["number_value"].is_number()) {
+        out = Vector4(args["number_value"].get<float>(), 0.0f, 0.0f, 0.0f);
+        return true;
+    }
+    error = "set_shader_uniform requires number_value, vector2_value, vector3_value or vector4_value.";
+    return false;
+}
+
+} // namespace
+
+ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) {
+    uint32_t sceneId = resolveSceneId(project, arguments);
+    SceneProject* sceneProject = project->getScene(sceneId);
+    if (!sceneProject || !sceneProject->scene) return expectedMissResult("Scene not found.");
+
+    Json members = Json::array();
+
+    if (arguments.contains("pass_index")) {
+        const std::vector<PostProcessPass>& passes = sceneProject->scene->getPostProcessPasses();
+        const int passIndex = arguments.value("pass_index", -1);
+        if (passIndex < 0 || passIndex >= (int)passes.size()) {
+            return expectedMissResult("Post-process pass not found; the scene has " + std::to_string(passes.size()) + " pass(es).");
+        }
+        const PostProcessPass& pass = passes[passIndex];
+
+        bool buildFailed = false;
+        collectPassShaderUniformMembers(members, pass, buildFailed);
+
+        return okResult("Inspected post-process pass uniforms.",
+                        Json{{"scene_id", sceneId},
+                             {"pass_index", passIndex},
+                             {"shader", pass.shader},
+                             {"enabled", pass.enabled},
+                             {"build_failed", buildFailed},
+                             {"members", members},
+                             {"values", shaderUniformValuesJson(pass.uniforms)}});
+    }
+
+    Entity entity;
+    ComponentType component;
+    ShaderType shaderType;
+    std::string error;
+    if (!resolveShaderComponent(sceneProject, arguments, entity, component, shaderType, error)) return expectedMissResult(error);
+
+    ShaderUniformValues* valuesRef = Catalog::getPropertyRef<ShaderUniformValues>(sceneProject->scene, entity, component, "shaderUniforms");
+    std::string* customShader = Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, component, "customShader");
+    if (!valuesRef || !customShader) return failResult("Component has no shader uniforms.");
+
+    const std::string effectiveShader = customShader->empty()
+        ? sceneProject->scene->getDefaultCustomShader(shaderType) : *customShader;
+
+    collectComponentShaderUniformMembers(members, sceneProject->scene, entity, component, *valuesRef);
+
+    return okResult("Inspected shader uniforms.",
+                    Json{{"scene_id", sceneId},
+                         {"entity_id", entity},
+                         {"component", Catalog::getComponentName(component)},
+                         {"custom_shader", *customShader},
+                         {"effective_shader", effectiveShader},
+                         {"members", members},
+                         {"values", shaderUniformValuesJson(*valuesRef)}});
+}
+
+ActionResult EditorActionExecutor::setShaderUniform(const Json& arguments) {
+    uint32_t sceneId = resolveSceneId(project, arguments);
+    SceneProject* sceneProject = project->getScene(sceneId);
+    if (!sceneProject || !sceneProject->scene) return failResult("Scene not found.");
+
+    const std::string name = arguments.value("name", "");
+    if (name.empty()) return failResult("set_shader_uniform requires name.");
+    if (ShaderUniforms::isReserved(name)) {
+        return failResult("'" + name + "' is written by the engine every frame and cannot be set; rename the shader member to drive it yourself.");
+    }
+
+    const bool remove = arguments.value("remove", false);
+    Vector4 value;
+    std::string error;
+    if (!remove && !parseShaderUniformValue(arguments, value, error)) return failResult(error);
+
+    if (arguments.contains("pass_index")) {
+        std::vector<PostProcessPass> passes = sceneProject->scene->getPostProcessPasses();
+        const int passIndex = arguments.value("pass_index", -1);
+        if (passIndex < 0 || passIndex >= (int)passes.size()) {
+            return failResult("Post-process pass not found; the scene has " + std::to_string(passes.size()) + " pass(es).");
+        }
+        if (remove) {
+            if (!passes[passIndex].removeUniform(name)) return expectedMissResult("Pass has no value named '" + name + "'.");
+        } else {
+            passes[passIndex].setUniform(name, value);
+        }
+        CommandHandle::get(sceneId)->addCommandNoMerge(
+            new ScenePropertyCmd<std::vector<PostProcessPass>>(project, sceneId, "post_process", passes));
+
+        Json declared = Json::array();
+        bool buildFailed = false;
+        collectPassShaderUniformMembers(declared, passes[passIndex], buildFailed);
+        bool declaredMember = false;
+        std::string message = remove ? "Removed post-process uniform through the command history."
+                                     : "Set post-process uniform through the command history.";
+        if (!remove) message += shaderUniformSetNote(declared, name, declaredMember);
+        return okResult(message, Json{{"pass_index", passIndex}, {"name", name}, {"declared", declaredMember}});
+    }
+
+    Entity entity;
+    ComponentType component;
+    ShaderType shaderType;
+    if (!resolveShaderComponent(sceneProject, arguments, entity, component, shaderType, error)) return failResult(error);
+
+    ShaderUniformValues* valuesRef = Catalog::getPropertyRef<ShaderUniformValues>(sceneProject->scene, entity, component, "shaderUniforms");
+    if (!valuesRef) return failResult("Component has no shader uniforms.");
+
+    ShaderUniformValues values = *valuesRef;
+    if (remove) {
+        if (!ShaderUniforms::remove(values, name)) return expectedMissResult("Component has no value named '" + name + "'.");
+    } else {
+        ShaderUniforms::set(values, name, value);
+    }
+    CommandHandle::get(sceneId)->addCommandNoMerge(
+        new PropertyCmd<ShaderUniformValues>(project, sceneId, entity, component, "shaderUniforms", values));
+
+    Json declared = Json::array();
+    collectComponentShaderUniformMembers(declared, sceneProject->scene, entity, component, values);
+    bool declaredMember = false;
+    std::string message = remove ? "Removed shader uniform through the command history."
+                                 : "Set shader uniform through the command history.";
+    if (!remove) message += shaderUniformSetNote(declared, name, declaredMember);
+    return okResult(message, Json{{"entity_id", entity},
+                                  {"component", Catalog::getComponentName(component)},
+                                  {"name", name},
+                                  {"declared", declaredMember}});
 }
 
 ActionResult EditorActionExecutor::writeShaderFile(const Json& arguments) {

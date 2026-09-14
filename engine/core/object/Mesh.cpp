@@ -353,6 +353,57 @@ bool Mesh::isAutoTransparency() const{
     return mesh.autoTransparency;
 }
 
+void Mesh::setCustomShader(const std::string& path){
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    if (mesh.customShader != path){
+        mesh.customShader = path;
+
+        mesh.needReload = true;
+    }
+}
+
+std::string Mesh::getCustomShader() const{
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    return mesh.customShader;
+}
+
+void Mesh::setShaderUniform(const std::string& name, const Vector4& value){
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    if (ShaderUniforms::set(mesh.shaderUniforms, name, value))
+        mesh.needUpdateShaderUniforms = true;
+}
+
+void Mesh::setShaderUniform(const std::string& name, const Vector3& value){
+    setShaderUniform(name, Vector4(value.x, value.y, value.z, 0.0f));
+}
+
+void Mesh::setShaderUniform(const std::string& name, const Vector2& value){
+    setShaderUniform(name, Vector4(value.x, value.y, 0.0f, 0.0f));
+}
+
+void Mesh::setShaderUniform(const std::string& name, float value){
+    setShaderUniform(name, Vector4(value, 0.0f, 0.0f, 0.0f));
+}
+
+Vector4 Mesh::getShaderUniform(const std::string& name) const{
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    return ShaderUniforms::get(mesh.shaderUniforms, name);
+}
+
+bool Mesh::removeShaderUniform(const std::string& name){
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    if (!ShaderUniforms::remove(mesh.shaderUniforms, name))
+        return false;
+
+    mesh.needUpdateShaderUniforms = true;
+    return true;
+}
+
 void Mesh::setAsMirror(){
     // default normal +Z matches a Wall surface; flip for differently-oriented meshes
     setAsMirror(Vector3(0, 0, 1));

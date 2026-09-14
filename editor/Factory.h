@@ -43,6 +43,7 @@ namespace doriax::editor{
         static std::string formatVector2(const Vector2& v);
         static std::string formatVector3(const Vector3& v);
         static std::string formatVector4(const Vector4& v);
+        static std::string formatShaderUniforms(const ShaderUniformValues& uniforms);
         static std::string formatRect(const Rect& r);
         static std::string formatPrimitiveType(PrimitiveType type);
         static std::string formatEaseType(EaseType type);

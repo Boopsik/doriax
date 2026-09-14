@@ -100,6 +100,8 @@ private:
     ActionResult generateShaders(const Json& arguments, const std::atomic<bool>* cancel);
     ActionResult forkShader(const Json& arguments);
     ActionResult writeShaderFile(const Json& arguments);
+    ActionResult inspectShaderUniforms(const Json& arguments);
+    ActionResult setShaderUniform(const Json& arguments);
     // Rejects a customShader value whose resolved .vert/.frag files do not exist.
     bool validateCustomShaderValue(const std::string& propertyName, const Json& args, std::string& error) const;
     ActionResult createTerrainHeightmap(const Json& arguments);

@@ -243,6 +243,7 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .addStaticProperty("openGL", &Engine::isOpenGL)
         .addStaticProperty("framerate", &Engine::getFramerate)
         .addStaticProperty("deltatime", &Engine::getDeltatime)
+        .addStaticProperty("systemTime", &Engine::getSystemTime)
         .addStaticProperty("asyncLoading", &Engine::isAsyncLoading, &Engine::setAsyncLoading)
         .addStaticFunction("startAsyncThread", &Engine::startAsyncThread)
         .addStaticFunction("commitThreadQueue", &Engine::commitThreadQueue)
@@ -284,6 +285,20 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .addStaticProperty("onGamepadButtonUp", [] () { return &Engine::onGamepadButtonUp; }, [] (lua_State* L) { Engine::onGamepadButtonUp = L; })
         .addStaticProperty("onGamepadAxisMove", [] () { return &Engine::onGamepadAxisMove; }, [] (lua_State* L) { Engine::onGamepadAxisMove = L; })
 
+        .endClass();
+
+    luabridge::getGlobalNamespace(L)
+        .beginClass<PostProcessPass>("PostProcessPass")
+        .addConstructor<void (*) (void)>()
+        .addProperty("shader", &PostProcessPass::shader)
+        .addProperty("enabled", &PostProcessPass::enabled)
+        .addFunction("setUniform",
+            luabridge::overload<const std::string&, const Vector4&>(&PostProcessPass::setUniform),
+            luabridge::overload<const std::string&, const Vector3&>(&PostProcessPass::setUniform),
+            luabridge::overload<const std::string&, const Vector2&>(&PostProcessPass::setUniform),
+            luabridge::overload<const std::string&, float>(&PostProcessPass::setUniform))
+        .addFunction("getUniform", &PostProcessPass::getUniform)
+        .addFunction("removeUniform", &PostProcessPass::removeUniform)
         .endClass();
 
     luabridge::getGlobalNamespace(L)
@@ -670,6 +685,15 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .addProperty("defaultSkyShader", &Scene::getDefaultSkyShader, &Scene::setDefaultSkyShader)
         .addProperty("defaultPointsShader", &Scene::getDefaultPointsShader, &Scene::setDefaultPointsShader)
         .addProperty("defaultLinesShader", &Scene::getDefaultLinesShader, &Scene::setDefaultLinesShader)
+        .addProperty("postProcessPasses", &Scene::getPostProcessPasses, &Scene::setPostProcessPasses)
+        .addFunction("setPostProcessUniform",
+            luabridge::overload<unsigned int, const std::string&, const Vector4&>(&Scene::setPostProcessUniform),
+            luabridge::overload<unsigned int, const std::string&, const Vector3&>(&Scene::setPostProcessUniform),
+            luabridge::overload<unsigned int, const std::string&, const Vector2&>(&Scene::setPostProcessUniform),
+            luabridge::overload<unsigned int, const std::string&, float>(&Scene::setPostProcessUniform))
+        .addFunction("getPostProcessUniform", &Scene::getPostProcessUniform)
+        .addFunction("setPostProcessPassEnabled", &Scene::setPostProcessPassEnabled)
+        .addFunction("isPostProcessPassEnabled", &Scene::isPostProcessPassEnabled)
         .addFunction("canReceiveUIEvents", &Scene::canReceiveUIEvents)
         .addProperty("enableUIEvents", &Scene::getEnableUIEvents, (void (Scene::*)(UIEventState))&Scene::setEnableUIEvents)
         .addFunction("getActionSystem", [] (Scene* self, lua_State* L) { return self->getSystem<ActionSystem>().get(); })

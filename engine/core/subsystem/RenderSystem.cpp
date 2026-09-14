@@ -70,6 +70,28 @@ namespace {
         render.applyUniformBlock(slot, sizeof(fade), &fade);
     }
 
+    // custom block of a forked shader, with the engine-written members refreshed
+    void applyCustomUniforms(ObjectRender& render, CustomUniformBlock& block, float frameTime, const Vector2& resolution){
+        if (block.slot == -1)
+            return;
+
+        block.writeTime(frameTime);
+        block.writeResolution(resolution.x, resolution.y);
+        render.applyUniformBlock(block.slot, (unsigned int)block.data.size(), block.data.data());
+    }
+
+    // both stages of a single-block component, rewritten first when its values changed
+    void applyCustomUniforms(ObjectRender& render, CustomUniformBlock& vsBlock, CustomUniformBlock& fsBlock,
+                             const ShaderUniformValues& values, bool& needUpdate, float frameTime, const Vector2& resolution){
+        if (needUpdate){
+            vsBlock.writeValues(values);
+            fsBlock.writeValues(values);
+            needUpdate = false;
+        }
+        applyCustomUniforms(render, vsBlock, frameTime, resolution);
+        applyCustomUniforms(render, fsBlock, frameTime, resolution);
+    }
+
     bool usesAlphaMask(const Material& material, bool textureShadow){
         return material.alphaMode == MaterialAlphaMode::MASK ||
             (material.alphaMode == MaterialAlphaMode::AUTO && textureShadow);
@@ -185,6 +207,8 @@ RenderSystem::RenderSystem(Scene* scene): SubSystem(scene){
     ssaoSlotParams = -1;
     ssaoBlurSlotParams = -1;
     currentSSAOTexture = NULL;
+    frameTime = 0.0f;
+    passResolution = Vector2(0.0f, 0.0f);
 
     ssrLoaded = false;
     ssrWidth = 0;
@@ -201,6 +225,7 @@ RenderSystem::RenderSystem(Scene* scene): SubSystem(scene){
 
     postProcessLoaded = false;
     postProcessNeedReload = false;
+    postProcessNeedUpdateUniforms = false;
     postProcessWidth = 0;
     postProcessHeight = 0;
     postProcessNeedsDepth = false;
@@ -1443,6 +1468,7 @@ void RenderSystem::renderReflectionProbeCapture(){
                                     captureCamera.worldDirection.z, previousCameraDir.w);
 
     capturingReflectionProbe = true;
+    passResolution = Vector2((float)resolution, (float)resolution);
     runtime.capturePass.setClearColor(probe->includeSky ? scene->getBackgroundColor() : Vector4(0.0f, 0.0f, 0.0f, 1.0f));
     runtime.capturePass.startRenderPass(&runtime.captureFramebuffer, (size_t)face);
 
@@ -2661,6 +2687,11 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
         if (mesh.submeshes[i].hasMorphTarget){
             mesh.submeshes[i].slotVSMorphTarget = shaderData.getUniformBlockIndex(UniformBlockType::VS_MORPHTARGET);
         }
+        // custom blocks of a forked shader (none in the built-in)
+        mesh.submeshes[i].customVSParams.resolve(shaderData, "u_vs_customParams");
+        mesh.submeshes[i].customFSParams.resolve(shaderData, "u_fs_customParams");
+        mesh.submeshes[i].customVSParams.writeValues(mesh.shaderUniforms);
+        mesh.submeshes[i].customFSParams.writeValues(mesh.shaderUniforms);
 
         if (!loadPBRTextures(mesh.submeshes[i].material, shaderData, mesh.submeshes[i].render, mesh.receiveLights)){
             return false;
@@ -2999,6 +3030,7 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
     }
 
     mesh.needReload = false;
+    mesh.needUpdateShaderUniforms = false;
     mesh.needUpdateAABB = true;
     mesh.loadCalled = true;
 
@@ -3101,6 +3133,14 @@ bool RenderSystem::drawMesh(MeshComponent& mesh, Transform& transform, CameraCom
         }
 
         updateMeshBuffers(mesh);
+
+        if (mesh.needUpdateShaderUniforms){
+            for (int i = 0; i < mesh.numSubmeshes; i++){
+                mesh.submeshes[i].customVSParams.writeValues(mesh.shaderUniforms);
+                mesh.submeshes[i].customFSParams.writeValues(mesh.shaderUniforms);
+            }
+            mesh.needUpdateShaderUniforms = false;
+        }
 
         // Buffer already uploaded this frame by updateInstanceBuffers().
         unsigned int instanceCount = 1;
@@ -3248,6 +3288,9 @@ bool RenderSystem::drawMesh(MeshComponent& mesh, Transform& transform, CameraCom
 
             //model, normal and mvp matrix
             render.applyUniformBlock(mesh.submeshes[i].slotVSParams, sizeof(float) * 48, &transform.modelMatrix);
+
+            applyCustomUniforms(render, mesh.submeshes[i].customVSParams, frameTime, passResolution);
+            applyCustomUniforms(render, mesh.submeshes[i].customFSParams, frameTime, passResolution);
 
             if (tilemap && !tilemapDrawRanges.empty()){
                 for (const TilemapDrawRange& range : tilemapDrawRanges){
@@ -4086,39 +4129,12 @@ void RenderSystem::renderFixedResolutionBlit(){
     renderBlit(&fixedResFramebuffer.getRender().getColorTexture(), Engine::getViewRect());
 }
 
-// writes one post-process uniform at its reflected offset in the block
-static void writePostProcessUniform(std::vector<uint8_t>& block, const ShaderUniform& uniform, const Vector4& value){
-    float components[4] = {value.x, value.y, value.z, value.w};
-
-    int count = 0;
-    bool isInt = false;
-    switch (uniform.type){
-        case ShaderUniformType::FLOAT:  count = 1; break;
-        case ShaderUniformType::FLOAT2: count = 2; break;
-        case ShaderUniformType::FLOAT3: count = 3; break;
-        case ShaderUniformType::FLOAT4: count = 4; break;
-        case ShaderUniformType::INT:    count = 1; isInt = true; break;
-        case ShaderUniformType::INT2:   count = 2; isInt = true; break;
-        case ShaderUniformType::INT3:   count = 3; isInt = true; break;
-        case ShaderUniformType::INT4:   count = 4; isInt = true; break;
-        default: return; // matrices are not editable
-    }
-
-    if ((size_t)(uniform.offset + count * 4) > block.size())
-        return;
-
-    for (int i = 0; i < count; i++){
-        if (isInt){
-            int intValue = (int)components[i];
-            memcpy(block.data() + uniform.offset + i * 4, &intValue, 4);
-        }else{
-            memcpy(block.data() + uniform.offset + i * 4, &components[i], 4);
-        }
-    }
-}
-
 void RenderSystem::needReloadPostProcess(){
     postProcessNeedReload = true;
+}
+
+void RenderSystem::needUpdatePostProcessUniforms(){
+    postProcessNeedUpdateUniforms = true;
 }
 
 void RenderSystem::loadPostProcess(){
@@ -4144,9 +4160,7 @@ void RenderSystem::loadPostProcess(){
             continue;
 
         PostProcessRuntime pass;
-        pass.slotParams = -1;
-        pass.hasResolution = false;
-        pass.hasTime = false;
+        pass.passIndex = i;
 
         // an empty path is the built-in passthrough, also the fallback of a failed fork
         pass.customId = ShaderPool::registerCustomShader(passes[i].shader);
@@ -4177,39 +4191,32 @@ void RenderSystem::loadPostProcess(){
         if (pass.slotGBuffer.first != -1)
             postProcessNeedsGBuffer = true;
 
-        unsigned int sizeBytes = 0;
-        const std::vector<ShaderUniform>* members = sd.getUniformBlockMembers("u_fs_postParams", sizeBytes);
-        if (members && sizeBytes > 0){
-            pass.slotParams = sd.getUniformBlockIndexByName("u_fs_postParams");
-            // the backend declares the block rounded up to the std140 vec4 stride
-            pass.params.assign(((sizeBytes + 15) / 16) * 16, 0);
-
-            for (int m = 0; m < (int)members->size(); m++){
-                const ShaderUniform& uniform = (*members)[m];
-                std::string name = ShaderData::getUniformShortName(uniform.name);
-
-                if (name == "resolution"){
-                    pass.hasResolution = true;
-                    pass.resolutionUniform = uniform;
-                }else if (name == "time"){
-                    pass.hasTime = true;
-                    pass.timeUniform = uniform;
-                }else{
-                    // stored by name, so a renamed or removed member just drops
-                    for (int v = 0; v < (int)passes[i].uniforms.size(); v++){
-                        if (passes[i].uniforms[v].first == name){
-                            writePostProcessUniform(pass.params, uniform, passes[i].uniforms[v].second);
-                            break;
-                        }
-                    }
-                }
-            }
+        // stored by name, so a renamed or removed member just drops
+        if (pass.params.resolve(sd, "u_fs_postParams")){
+            pass.params.writeValues(passes[i].uniforms);
         }
 
         postProcessPasses.push_back(std::move(pass));
     }
 
     postProcessLoaded = true;
+    postProcessNeedUpdateUniforms = false;
+}
+
+// rewrites the pass values from the scene chain, keeping the compiled shaders
+void RenderSystem::updatePostProcessUniforms(){
+    if (!postProcessNeedUpdateUniforms || !postProcessLoaded)
+        return;
+
+    const std::vector<PostProcessPass>& passes = scene->getPostProcessPasses();
+    for (int i = 0; i < (int)postProcessPasses.size(); i++){
+        PostProcessRuntime& pass = postProcessPasses[i];
+        if (pass.passIndex < (int)passes.size()){
+            pass.params.writeValues(passes[pass.passIndex].uniforms);
+        }
+    }
+
+    postProcessNeedUpdateUniforms = false;
 }
 
 void RenderSystem::destroyPostProcess(){
@@ -4228,6 +4235,7 @@ void RenderSystem::destroyPostProcess(){
     postProcessNeedsDepth = false;
     postProcessNeedsGBuffer = false;
     postProcessNeedReload = false;
+    postProcessNeedUpdateUniforms = false;
     postProcessLoaded = false;
 }
 
@@ -4277,20 +4285,11 @@ void RenderSystem::renderPostProcess(FramebufferRender* destination){
     TextureRender* input = &postProcessFramebuffer[0].getRender().getColorTexture();
     int pingPong = 1;
 
+    updatePostProcessUniforms();
+
     for (int i = 0; i < (int)postProcessPasses.size(); i++){
         PostProcessRuntime& pass = postProcessPasses[i];
         bool writeDestination = destination && (i + 1 == (int)postProcessPasses.size());
-
-        // rewritten every frame so they survive a resize and can animate
-        if (pass.hasResolution){
-            float w = (float)postProcessWidth;
-            float h = (float)postProcessHeight;
-            writePostProcessUniform(pass.params, pass.resolutionUniform, Vector4(w, h, 1.0f / w, 1.0f / h));
-        }
-        if (pass.hasTime){
-            float seconds = (float)Engine::getSystemTime();
-            writePostProcessUniform(pass.params, pass.timeUniform, Vector4(seconds, seconds, seconds, seconds));
-        }
 
         if (writeDestination){
             postProcessPassRender.startRenderPass(destination);
@@ -4303,7 +4302,7 @@ void RenderSystem::renderPostProcess(FramebufferRender* destination){
             pass.render.addTexture(pass.slotDepth, ShaderStageType::FRAGMENT, depthTexture);
             pass.render.addTexture(pass.slotGBuffer, ShaderStageType::FRAGMENT, gbufferTexture);
             pass.render.addTexture(pass.slotSSAO, ShaderStageType::FRAGMENT, ssaoTexture);
-            pass.render.applyUniformBlock(pass.slotParams, (unsigned int)pass.params.size(), pass.params.data());
+            applyCustomUniforms(pass.render, pass.params, frameTime, Vector2((float)postProcessWidth, (float)postProcessHeight));
             pass.render.draw(0, 3, 1);
         }
         postProcessPassRender.endRenderPass();
@@ -4430,6 +4429,9 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
         submesh.slotVSGBufferSkinning = -1;
         submesh.slotVSGBufferMorphTarget = -1;
         submesh.slotVSGBufferTerrain = -1;
+
+        submesh.customVSParams.clear();
+        submesh.customFSParams.clear();
     }
 
     //Destroy buffer
@@ -4513,6 +4515,11 @@ bool RenderSystem::loadUI(Entity entity, UIComponent& ui, uint8_t pipelines, boo
 
     ui.slotVSParams = shaderData.getUniformBlockIndex(UniformBlockType::UI_VS_PARAMS);
     ui.slotFSParams = shaderData.getUniformBlockIndex(UniformBlockType::UI_FS_PARAMS);
+    ui.customVSParams.resolve(shaderData, "u_vs_customParams");
+    ui.customFSParams.resolve(shaderData, "u_fs_customParams");
+    ui.customVSParams.writeValues(ui.shaderUniforms);
+    ui.customFSParams.writeValues(ui.shaderUniforms);
+    ui.needUpdateShaderUniforms = false;
 
     size_t bufferSize;
     size_t minBufferSize;
@@ -4607,6 +4614,7 @@ bool RenderSystem::drawUI(UIComponent& ui, Transform& transform, PipelineType pi
         render.applyUniformBlock(ui.slotVSParams, sizeof(float) * 16, &transform.modelViewProjectionMatrix);
         //Color
         render.applyUniformBlock(ui.slotFSParams, sizeof(float) * 4, &ui.color);
+        applyCustomUniforms(render, ui.customVSParams, ui.customFSParams, ui.shaderUniforms, ui.needUpdateShaderUniforms, frameTime, passResolution);
         render.draw(0, ui.vertexCount, 1);
 
     }
@@ -4649,6 +4657,8 @@ void RenderSystem::destroyUI(Entity entity, UIComponent& ui){
     //Shaders uniforms
     ui.slotVSParams = -1;
     ui.slotFSParams = -1;
+    ui.customVSParams.clear();
+    ui.customFSParams.clear();
 
     SystemRender::addQueueCommand(&changeDestroy, new check_load_t{scene, entity});
 }
@@ -4698,6 +4708,11 @@ bool RenderSystem::loadPoints(Entity entity, PointsComponent& points, uint8_t pi
     ShaderData& shaderData = points.shader.get()->shaderData;
 
     points.slotVSParams = shaderData.getUniformBlockIndex(UniformBlockType::POINTS_VS_PARAMS);
+    points.customVSParams.resolve(shaderData, "u_vs_customParams");
+    points.customFSParams.resolve(shaderData, "u_fs_customParams");
+    points.customVSParams.writeValues(points.shaderUniforms);
+    points.customFSParams.writeValues(points.shaderUniforms);
+    points.needUpdateShaderUniforms = false;
 
     points.buffer.clear();
     points.buffer.addAttribute(AttributeType::POSITION, 3, 0);
@@ -4772,6 +4787,11 @@ bool RenderSystem::loadLines(Entity entity, LinesComponent& lines, uint8_t pipel
     ShaderData& shaderData = lines.shader.get()->shaderData;
 
     lines.slotVSParams = shaderData.getUniformBlockIndex(UniformBlockType::LINES_VS_PARAMS);
+    lines.customVSParams.resolve(shaderData, "u_vs_customParams");
+    lines.customFSParams.resolve(shaderData, "u_fs_customParams");
+    lines.customVSParams.writeValues(lines.shaderUniforms);
+    lines.customFSParams.writeValues(lines.shaderUniforms);
+    lines.needUpdateShaderUniforms = false;
 
     lines.buffer.clear();
     lines.buffer.addAttribute(AttributeType::POSITION, 3, 0);
@@ -4883,6 +4903,7 @@ bool RenderSystem::drawPoints(PointsComponent& points, Transform& transform, Cam
         vsParams.mvpMatrix = transform.modelViewProjectionMatrix;
         vsParams.pointScale = computePointsScale(camera, getPointsViewportHeight(camera));
         render.applyUniformBlock(points.slotVSParams, sizeof(vs_points_params_t), &vsParams);
+        applyCustomUniforms(render, points.customVSParams, points.customFSParams, points.shaderUniforms, points.needUpdateShaderUniforms, frameTime, passResolution);
         render.draw(0, points.numVisible, 1);
     }
 
@@ -4915,6 +4936,8 @@ void RenderSystem::destroyPoints(Entity entity, PointsComponent& points){
 
     //Shaders uniforms
     points.slotVSParams = -1;
+    points.customVSParams.clear();
+    points.customFSParams.clear();
 
     SystemRender::addQueueCommand(&changeDestroy, new check_load_t{scene, entity});
 }
@@ -4936,6 +4959,7 @@ bool RenderSystem::drawLines(LinesComponent& lines, Transform& transform, Transf
             return false;
         }
         render.applyUniformBlock(lines.slotVSParams, sizeof(float) * 16, &transform.modelViewProjectionMatrix);
+        applyCustomUniforms(render, lines.customVSParams, lines.customFSParams, lines.shaderUniforms, lines.needUpdateShaderUniforms, frameTime, passResolution);
         render.draw(0, lines.lines.size() * 2, 1);
     }
 
@@ -4965,6 +4989,8 @@ void RenderSystem::destroyLines(Entity entity, LinesComponent& lines){
 
     //Shaders uniforms
     lines.slotVSParams = -1;
+    lines.customVSParams.clear();
+    lines.customFSParams.clear();
 
     SystemRender::addQueueCommand(&changeDestroy, new check_load_t{scene, entity});
 }
@@ -5043,6 +5069,11 @@ bool RenderSystem::loadSky(Entity entity, SkyComponent& sky, uint8_t pipelines){
 
     sky.slotVSParams = shaderData.getUniformBlockIndex(UniformBlockType::SKY_VS_PARAMS);
     sky.slotFSParams = shaderData.getUniformBlockIndex(UniformBlockType::SKY_FS_PARAMS);
+    sky.customVSParams.resolve(shaderData, "u_vs_customParams");
+    sky.customFSParams.resolve(shaderData, "u_fs_customParams");
+    sky.customVSParams.writeValues(sky.shaderUniforms);
+    sky.customFSParams.writeValues(sky.shaderUniforms);
+    sky.needUpdateShaderUniforms = false;
 
     if (TextureRender* textureRender = sky.texture.getRender(&emptyCubeWhite)){
         if (!textureRender->isCreated()){
@@ -5094,6 +5125,7 @@ bool RenderSystem::drawSky(SkyComponent& sky, PipelineType pipType){
         }
         render.applyUniformBlock(sky.slotVSParams, sizeof(float) * 16, &sky.skyViewProjectionMatrix);
         render.applyUniformBlock(sky.slotFSParams, sizeof(float) * 4, &sky.color);
+        applyCustomUniforms(render, sky.customVSParams, sky.customFSParams, sky.shaderUniforms, sky.needUpdateShaderUniforms, frameTime, passResolution);
         render.draw(0, 36, 1);
     }
 
@@ -5131,6 +5163,8 @@ void RenderSystem::destroySky(Entity entity, SkyComponent& sky){
     //Shaders uniforms
     sky.slotVSParams = -1;
     sky.slotFSParams = -1;
+    sky.customVSParams.clear();
+    sky.customFSParams.clear();
 
     SystemRender::addQueueCommand(&changeDestroy, new check_load_t{scene, entity});
 }
@@ -7056,6 +7090,8 @@ void RenderSystem::draw(){
     auto transforms = scene->getComponentArray<Transform>();
     auto cameras = scene->getComponentArray<CameraComponent>();
 
+    frameTime = (float)Engine::getSystemTime();
+
     updateShadowBindings();
     updateAllTerrainRenderTextures();
     updateInstanceBuffers();
@@ -7446,6 +7482,8 @@ void RenderSystem::draw(){
             colorPassViewport = Rect(0, 0, (float)camera.framebuffer->getWidth(), (float)camera.framebuffer->getHeight());
             camera.render.startRenderPass(&camera.framebuffer->getRender());
         }
+
+        passResolution = Vector2(colorPassViewport.getWidth(), colorPassViewport.getHeight());
 
         //---------Draw opaque meshes and UI----------
         bool hasActiveScissor = false;

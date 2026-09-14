@@ -14,6 +14,7 @@
 #include "render/TextureRender.h"
 #include "texture/TextureData.h"
 #include "texture/Material.h"
+#include "shader/ShaderUniforms.h"
 #include "buffer/InterleavedBuffer.h"
 #include "buffer/IndexBuffer.h"
 #include "buffer/ExternalBuffer.h"
@@ -102,6 +103,10 @@ namespace doriax{
         int slotVSGBufferMorphTarget = -1;
         int slotVSGBufferTerrain = -1;
 
+        // custom uniform blocks of a forked shader, filled from MeshComponent::shaderUniforms
+        CustomUniformBlock customVSParams;
+        CustomUniformBlock customFSParams;
+
         Rect textureRect = Rect(0.0, 0.0, 1.0, 1.0);
 
         PrimitiveType primitiveType = PrimitiveType::TRIANGLES;
@@ -157,6 +162,9 @@ namespace doriax{
         // Empty = use the built-in Mesh shader. Drives the main render pass only;
         // depth/gbuffer passes keep the built-in shaders.
         std::string customShader;
+        // values of the fork's custom uniform blocks, by member name, shared by all submeshes
+        ShaderUniformValues shaderUniforms;
+        bool needUpdateShaderUniforms = false;
 
         HybridArray<Matrix4, MAX_BONES> bonesMatrix;
         BufferRender bonesBuffer;

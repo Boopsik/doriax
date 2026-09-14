@@ -54,6 +54,8 @@ namespace doriax::editor{
         // for changes outside the probe itself, like a mesh leaving the capture pass
         UpdateFlags_Reflection_Probe_Recapture_All = (uint64_t)1 << 34,
         UpdateFlags_Terrain_Foliage     = (uint64_t)1 << 35,
+        // shaderUniforms of Mesh/UI/Points/Lines/Sky (no shader reload)
+        UpdateFlags_Shader_Uniforms     = (uint64_t)1 << 36,
         // handlers that touch the whole scene, must be masked out when applying all flags
         UpdateFlags_SceneWide = UpdateFlags_Scene_Mesh_Reload | UpdateFlags_Reflection_Probe_Recapture_All
     };
@@ -186,6 +188,9 @@ namespace doriax::editor{
         // with propertyFields set to the bits that property occupies. A command ORs them in after
         // writing the value, and puts the whole mask back on undo.
         static uint32_t* getSubmeshOverrideMask(EntityRegistry* registry, Entity entity, ComponentType component, const std::string& propertyName, uint32_t& propertyFields);
+
+        // custom uniform blocks of a Mesh/UI/Points/Lines/Sky component's loaded shader, vertex first
+        static std::vector<const CustomUniformBlock*> getShaderUniformBlocks(EntityRegistry* registry, Entity entity, ComponentType component);
 
         template<typename T>
         static T* getPropertyRef(EntityRegistry* registry, Entity entity, ComponentType component, std::string propertyName){

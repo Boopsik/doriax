@@ -5033,12 +5033,157 @@ void editor::Properties::drawCustomShaderRow(ComponentType cpType, ShaderType sh
             });
     };
 
-    beginTable(cpType, getLabelSize("Shader"), "custom_shader_table");
+    // the uniform rows share the table, so the label column fits their names
+    ShaderUniformRows uniformRows = resolveShaderUniformRows(cpType, sceneProject, shaderEntity);
+    float labelSize = getLabelSize("Shader", false);
+    for (const ShaderUniform& uniform : uniformRows.members)
+        labelSize = std::max(labelSize, getLabelSize(uniform.name, false));
+
+    beginTable(cpType, labelSize, "custom_shader_table");
     propertyHeader("Shader");
 
     drawShaderRowContents(shaderType, currentShader, setShader, onFork, "custom_shader");
 
+    drawShaderUniformRows(cpType, sceneProject, shaderEntity, uniformRows);
+
     endTable();
+}
+
+editor::Properties::ShaderUniformRows editor::Properties::resolveShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity){
+    ShaderUniformRows rows;
+    Scene* scene = sceneProject->scene;
+
+    for (const CustomUniformBlock* block : Catalog::getShaderUniformBlocks(scene, entity, cpType)) {
+        for (const ShaderUniform& uniform : block->members) {
+            bool listed = false;
+            for (const ShaderUniform& existing : rows.members) {
+                if (existing.name == uniform.name) {
+                    listed = true;
+                    break;
+                }
+            }
+            if (!listed)
+                rows.members.push_back(uniform);
+        }
+    }
+
+    // a failed fork reloads on the built-in, which registers no custom id
+    auto resolveStatus = [&rows, scene](const std::string& customShader, ShaderType shaderType, bool loaded, bool needReload, uint16_t customShaderId) {
+        const std::string& effective = customShader.empty() ? scene->getDefaultCustomShader(shaderType) : customShader;
+        rows.buildFailed = !effective.empty() && loaded && !needReload && customShaderId == 0;
+    };
+
+    if (cpType == ComponentType::MeshComponent) {
+        if (MeshComponent* mesh = scene->findComponent<MeshComponent>(entity))
+            resolveStatus(mesh->customShader, ShaderType::MESH, mesh->loaded, mesh->needReload,
+                          mesh->numSubmeshes > 0 ? mesh->submeshes[0].customShaderId : 0);
+    } else if (cpType == ComponentType::UIComponent) {
+        if (UIComponent* ui = scene->findComponent<UIComponent>(entity))
+            resolveStatus(ui->customShader, ShaderType::UI, ui->loaded, ui->needReload, ui->customShaderId);
+    } else if (cpType == ComponentType::SkyComponent) {
+        if (SkyComponent* sky = scene->findComponent<SkyComponent>(entity))
+            resolveStatus(sky->customShader, ShaderType::SKYBOX, sky->loaded, sky->needReload, sky->customShaderId);
+    } else if (cpType == ComponentType::PointsComponent) {
+        if (PointsComponent* points = scene->findComponent<PointsComponent>(entity))
+            resolveStatus(points->customShader, ShaderType::POINTS, points->loaded, points->needReload, points->customShaderId);
+    } else if (cpType == ComponentType::LinesComponent) {
+        if (LinesComponent* lines = scene->findComponent<LinesComponent>(entity))
+            resolveStatus(lines->customShader, ShaderType::LINES, lines->loaded, lines->needReload, lines->customShaderId);
+    }
+
+    return rows;
+}
+
+bool editor::Properties::drawShaderUniformRow(const ShaderUniform& uniform, const ShaderUniformValues& values, const std::string& idPrefix, Vector4& newValue){
+    const std::string& name = uniform.name;
+
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::Text("%s", name.c_str());
+    ImGui::TableSetColumnIndex(1);
+
+    // RenderSystem rewrites these every frame
+    if (ShaderUniforms::isReserved(name)){
+        ImGui::TextDisabled("Set by the engine");
+        ImGui::SameLine();
+        helpMarker(name == "resolution"
+            ? "Reserved uniform, written every frame with the size of the render target: xy = width and height, zw = 1 / width and 1 / height.\n\nRename it to edit a value of your own here."
+            : "Reserved uniform, written every frame with the seconds elapsed since startup.\n\nRename it to edit a value of your own here.");
+        return false;
+    }
+
+    if (!ShaderUniforms::isEditable(uniform)){
+        ImGui::TextDisabled("Not editable");
+        ImGui::SameLine();
+        helpMarker(uniform.arrayCount > 1
+            ? "Array members take no value and stay zero. Declare one scalar or vector member per value instead."
+            : "Matrix members take no value and stay zero. Only float/int scalars and vectors can be edited.");
+        return false;
+    }
+
+    int components = 0;
+    bool isInt = false;
+    switch (uniform.type){
+        case ShaderUniformType::FLOAT:  components = 1; break;
+        case ShaderUniformType::FLOAT2: components = 2; break;
+        case ShaderUniformType::FLOAT3: components = 3; break;
+        case ShaderUniformType::FLOAT4: components = 4; break;
+        case ShaderUniformType::INT:    components = 1; isInt = true; break;
+        case ShaderUniformType::INT2:   components = 2; isInt = true; break;
+        case ShaderUniformType::INT3:   components = 3; isInt = true; break;
+        case ShaderUniformType::INT4:   components = 4; isInt = true; break;
+        default: return false;
+    }
+
+    Vector4 value = ShaderUniforms::get(values, name);
+    float fields[4] = {value.x, value.y, value.z, value.w};
+    bool changed = false;
+    std::string uniformId = idPrefix + name;
+    ImGui::SetNextItemWidth(-1);
+    if (isInt){
+        int intFields[4] = {(int)fields[0], (int)fields[1], (int)fields[2], (int)fields[3]};
+        changed = ImGui::DragScalarN(uniformId.c_str(), ImGuiDataType_S32, intFields, components, 1.0f);
+        for (int c = 0; c < 4; c++)
+            fields[c] = (float)intFields[c];
+    }else{
+        changed = ImGui::DragScalarN(uniformId.c_str(), ImGuiDataType_Float, fields, components, 0.01f);
+    }
+
+    if (changed)
+        newValue = Vector4(fields[0], fields[1], fields[2], fields[3]);
+
+    return changed;
+}
+
+void editor::Properties::drawShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity, const ShaderUniformRows& rows){
+    if (rows.buildFailed) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(1);
+        // a failed fork keeps rendering, the runtime falls back to the built-in
+        ImGui::TextDisabled("Shader failed to build");
+        return;
+    }
+
+    if (rows.members.empty())
+        return;
+
+    ShaderUniformValues* valuesRef = Catalog::getPropertyRef<ShaderUniformValues>(sceneProject->scene, entity, cpType, "shaderUniforms");
+    if (!valuesRef)
+        return;
+    const ShaderUniformValues values = *valuesRef;
+    const uint32_t sceneId = sceneProject->id;
+
+    for (const ShaderUniform& uniform : rows.members) {
+        Vector4 newValue;
+        if (drawShaderUniformRow(uniform, values, "##shader_uniform_", newValue)) {
+            ShaderUniformValues newValues = values;
+            ShaderUniforms::set(newValues, uniform.name, newValue);
+
+            // dragging merges into one undo step
+            CommandHandle::get(sceneId)->addCommand(
+                new PropertyCmd<ShaderUniformValues>(project, sceneId, entity, cpType, "shaderUniforms", newValues));
+        }
+    }
 }
 
 void editor::Properties::drawSceneShaderRow(SceneProject* sceneProject, ShaderType shaderType, const char* scenePropertyName, const char* label){
@@ -5131,78 +5276,14 @@ void editor::Properties::drawPostProcessUniforms(uint32_t sceneId, const std::ve
         return;
 
     for (size_t m = 0; m < resolved.members->size(); m++){
-        const ShaderUniform& uniform = (*resolved.members)[m];
-        std::string name = ShaderData::getUniformShortName(uniform.name);
+        // reflected as "instance.member"; the rows use the short name
+        ShaderUniform uniform = (*resolved.members)[m];
+        uniform.name = ShaderData::getUniformShortName(uniform.name);
 
-        // shown but not editable: RenderSystem rewrites these every frame
-        if (name == "resolution" || name == "time"){
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("%s", name.c_str());
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextDisabled("Set by the engine");
-            ImGui::SameLine();
-            helpMarker(name == "resolution"
-                ? "Reserved uniform, written every frame with the size of the pass target: xy = width and height, zw = 1 / width and 1 / height.\n\nRename it to edit a value of your own here."
-                : "Reserved uniform, written every frame with the seconds elapsed since startup.\n\nRename it to edit a value of your own here.");
-            continue;
-        }
-
-        int components = 0;
-        bool isInt = false;
-        switch (uniform.type){
-            case ShaderUniformType::FLOAT:  components = 1; break;
-            case ShaderUniformType::FLOAT2: components = 2; break;
-            case ShaderUniformType::FLOAT3: components = 3; break;
-            case ShaderUniformType::FLOAT4: components = 4; break;
-            case ShaderUniformType::INT:    components = 1; isInt = true; break;
-            case ShaderUniformType::INT2:   components = 2; isInt = true; break;
-            case ShaderUniformType::INT3:   components = 3; isInt = true; break;
-            case ShaderUniformType::INT4:   components = 4; isInt = true; break;
-            default: continue; // matrices are not editable
-        }
-
-        Vector4 value;
-        for (size_t v = 0; v < passes[index].uniforms.size(); v++){
-            if (passes[index].uniforms[v].first == name){
-                value = passes[index].uniforms[v].second;
-                break;
-            }
-        }
-
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        ImGui::Text("%s", name.c_str());
-        ImGui::TableSetColumnIndex(1);
-
-        float values[4] = {value.x, value.y, value.z, value.w};
-        bool changed = false;
-        std::string uniformId = "##pp_uniform_" + name;
-        ImGui::SetNextItemWidth(-1);
-        if (isInt){
-            int intValues[4] = {(int)values[0], (int)values[1], (int)values[2], (int)values[3]};
-            changed = ImGui::DragScalarN(uniformId.c_str(), ImGuiDataType_S32, intValues, components, 1.0f);
-            for (int c = 0; c < 4; c++)
-                values[c] = (float)intValues[c];
-        }else{
-            changed = ImGui::DragScalarN(uniformId.c_str(), ImGuiDataType_Float, values, components, 0.01f);
-        }
-
-        if (changed){
+        Vector4 newValue;
+        if (drawShaderUniformRow(uniform, passes[index].uniforms, "##pp_uniform_", newValue)){
             std::vector<PostProcessPass> newPasses = passes;
-            std::vector<std::pair<std::string, Vector4>>& uniforms = newPasses[index].uniforms;
-            Vector4 newValue(values[0], values[1], values[2], values[3]);
-
-            bool found = false;
-            for (size_t v = 0; v < uniforms.size(); v++){
-                if (uniforms[v].first == name){
-                    uniforms[v].second = newValue;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-                uniforms.push_back({name, newValue});
+            newPasses[index].setUniform(uniform.name, newValue);
 
             // dragging merges into one undo step
             CommandHandle::get(sceneId)->addCommand(

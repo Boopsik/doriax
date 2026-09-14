@@ -491,9 +491,68 @@ const std::vector<PostProcessPass>& Scene::getPostProcessPasses() const{
 }
 
 void Scene::setPostProcessPasses(const std::vector<PostProcessPass>& passes){
+    // only uniform values changed: keep the compiled chain
+    bool sameChain = passes.size() == settings.postProcess.size();
+    for (size_t i = 0; sameChain && i < passes.size(); i++){
+        sameChain = passes[i].shader == settings.postProcess[i].shader &&
+                    passes[i].enabled == settings.postProcess[i].enabled;
+    }
+
     settings.postProcess = passes;
-    // shaders and bindings are resolved per chain change, not per frame
+
+    if (sameChain){
+        getSystem<RenderSystem>()->needUpdatePostProcessUniforms();
+    }else{
+        getSystem<RenderSystem>()->needReloadPostProcess();
+    }
+}
+
+void Scene::setPostProcessUniform(unsigned int index, const std::string& name, const Vector4& value){
+    if (index >= settings.postProcess.size()){
+        Log::error("Post-process pass %u does not exist, cannot set uniform '%s'", index, name.c_str());
+        return;
+    }
+
+    if (ShaderUniforms::set(settings.postProcess[index].uniforms, name, value))
+        getSystem<RenderSystem>()->needUpdatePostProcessUniforms();
+}
+
+void Scene::setPostProcessUniform(unsigned int index, const std::string& name, const Vector3& value){
+    setPostProcessUniform(index, name, Vector4(value.x, value.y, value.z, 0.0f));
+}
+
+void Scene::setPostProcessUniform(unsigned int index, const std::string& name, const Vector2& value){
+    setPostProcessUniform(index, name, Vector4(value.x, value.y, 0.0f, 0.0f));
+}
+
+void Scene::setPostProcessUniform(unsigned int index, const std::string& name, float value){
+    setPostProcessUniform(index, name, Vector4(value, 0.0f, 0.0f, 0.0f));
+}
+
+Vector4 Scene::getPostProcessUniform(unsigned int index, const std::string& name) const{
+    if (index >= settings.postProcess.size())
+        return Vector4::ZERO;
+
+    return ShaderUniforms::get(settings.postProcess[index].uniforms, name);
+}
+
+void Scene::setPostProcessPassEnabled(unsigned int index, bool enabled){
+    if (index >= settings.postProcess.size()){
+        Log::error("Post-process pass %u does not exist, cannot enable it", index);
+        return;
+    }
+    if (settings.postProcess[index].enabled == enabled)
+        return;
+
+    settings.postProcess[index].enabled = enabled;
     getSystem<RenderSystem>()->needReloadPostProcess();
+}
+
+bool Scene::isPostProcessPassEnabled(unsigned int index) const{
+    if (index >= settings.postProcess.size())
+        return false;
+
+    return settings.postProcess[index].enabled;
 }
 
 bool Scene::canReceiveUIEvents(){

@@ -852,6 +852,7 @@ set(DORIAX_SRCS
     core/script/binding/UtilClassesLua.cpp
     core/shader/ShaderData.cpp
     core/shader/ShaderDataSerializer.cpp
+    core/shader/ShaderUniforms.cpp
     core/subsystem/ActionSystem.cpp
     core/subsystem/AudioSystem.cpp
     core/subsystem/MeshSystem.cpp

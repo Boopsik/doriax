@@ -1169,6 +1169,24 @@ Vector4 editor::Stream::decodeVector4(const YAML::Node& node) {
     return Vector4(decodeFinite(node[0], 0.0f), decodeFinite(node[1], 0.0f), decodeFinite(node[2], 0.0f), decodeFinite(node[3], 0.0f));
 }
 
+YAML::Node editor::Stream::encodeShaderUniforms(const ShaderUniformValues& uniforms) {
+    YAML::Node node;
+    for (const auto& uniform : uniforms) {
+        node[uniform.first] = encodeVector4(uniform.second);
+    }
+    return node;
+}
+
+ShaderUniformValues editor::Stream::decodeShaderUniforms(const YAML::Node& node) {
+    ShaderUniformValues uniforms;
+    if (node && node.IsMap()) {
+        for (const auto& uniform : node) {
+            uniforms.push_back({uniform.first.as<std::string>(), decodeVector4(uniform.second)});
+        }
+    }
+    return uniforms;
+}
+
 YAML::Node editor::Stream::encodeQuaternion(const Quaternion& quat) {
     YAML::Node node;
     node.SetStyle(YAML::EmitterStyle::Flow);
@@ -2603,9 +2621,8 @@ YAML::Node editor::Stream::encodeScene(Scene* scene) {
         YAML::Node passNode;
         passNode["shader"] = pass.shader;
         passNode["enabled"] = pass.enabled;
-        for (const auto& uniform : pass.uniforms) {
-            passNode["uniforms"][uniform.first] = encodeVector4(uniform.second);
-        }
+        if (!pass.uniforms.empty())
+            passNode["uniforms"] = encodeShaderUniforms(pass.uniforms);
         sceneNode["postProcess"].push_back(passNode);
     }
 
@@ -2721,11 +2738,7 @@ Scene* editor::Stream::decodeScene(Scene* scene, const YAML::Node& node) {
             PostProcessPass pass;
             pass.shader = passNode["shader"] ? passNode["shader"].as<std::string>() : "";
             pass.enabled = passNode["enabled"] ? passNode["enabled"].as<bool>() : true;
-            if (passNode["uniforms"]) {
-                for (const auto& uniform : passNode["uniforms"]) {
-                    pass.uniforms.push_back({uniform.first.as<std::string>(), decodeVector4(uniform.second)});
-                }
-            }
+            pass.uniforms = decodeShaderUniforms(passNode["uniforms"]);
             postProcess.push_back(pass);
         }
     }
@@ -4495,6 +4508,8 @@ YAML::Node editor::Stream::encodeMeshComponent(const MeshComponent& mesh, bool e
 
     if (!mesh.customShader.empty())
         node["customShader"] = mesh.customShader;
+    if (!mesh.shaderUniforms.empty())
+        node["shaderUniforms"] = encodeShaderUniforms(mesh.shaderUniforms);
 
     //node["needUpdateBuffer"] = mesh.needUpdateBuffer;
     //node["needReload"] = mesh.needReload;
@@ -4579,6 +4594,8 @@ MeshComponent editor::Stream::decodeMeshComponent(const YAML::Node& node, const 
     if (node["windingOrder"]) mesh.windingOrder = stringToWindingOrder(node["windingOrder"].as<std::string>());
 
     if (node["customShader"]) mesh.customShader = node["customShader"].as<std::string>();
+    mesh.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
+    mesh.needUpdateShaderUniforms = true;
 
     //mesh.needUpdateBuffer = node["needUpdateBuffer"].as<bool>();
     //mesh.needReload = node["needReload"].as<bool>();
@@ -4619,6 +4636,8 @@ YAML::Node editor::Stream::encodeUIComponent(const UIComponent& ui, bool embedTe
 
     if (!ui.customShader.empty())
         node["customShader"] = ui.customShader;
+    if (!ui.shaderUniforms.empty())
+        node["shaderUniforms"] = encodeShaderUniforms(ui.shaderUniforms);
 
     //node["needReload"] = ui.needReload;
     //node["needUpdateAABB"] = ui.needUpdateAABB;
@@ -4665,6 +4684,8 @@ UIComponent editor::Stream::decodeUIComponent(const YAML::Node& node, const UICo
     if (node["focused"]) ui.focused = node["focused"].as<bool>();
 
     if (node["customShader"]) ui.customShader = node["customShader"].as<std::string>();
+    ui.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
+    ui.needUpdateShaderUniforms = true;
 
     //ui.needReload = node["needReload"].as<bool>();
     //ui.needUpdateAABB = node["needUpdateAABB"].as<bool>();
@@ -5938,6 +5959,8 @@ YAML::Node editor::Stream::encodeSkyComponent(const SkyComponent& sky) {
 
     if (!sky.customShader.empty())
         node["customShader"] = sky.customShader;
+    if (!sky.shaderUniforms.empty())
+        node["shaderUniforms"] = encodeShaderUniforms(sky.shaderUniforms);
 
     return node;
 }
@@ -5971,6 +5994,8 @@ SkyComponent editor::Stream::decodeSkyComponent(const YAML::Node& node, const Sk
     if (node["visible"]) sky.visible = node["visible"].as<bool>();
 
     if (node["customShader"]) sky.customShader = node["customShader"].as<std::string>();
+    sky.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
+    sky.needUpdateShaderUniforms = true;
 
     return sky;
 }
@@ -7475,6 +7500,8 @@ YAML::Node editor::Stream::encodePointsComponent(const PointsComponent& points) 
 
     if (!points.customShader.empty())
         node["customShader"] = points.customShader;
+    if (!points.shaderUniforms.empty())
+        node["shaderUniforms"] = encodeShaderUniforms(points.shaderUniforms);
 
     return node;
 }
@@ -7513,6 +7540,8 @@ PointsComponent editor::Stream::decodePointsComponent(const YAML::Node& node, co
     }
 
     if (node["customShader"]) points.customShader = node["customShader"].as<std::string>();
+    points.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
+    points.needUpdateShaderUniforms = true;
 
     // Reset runtime fields
     points.renderPoints.clear();
@@ -7545,6 +7574,8 @@ YAML::Node editor::Stream::encodeLinesComponent(const LinesComponent& lines) {
 
     if (!lines.customShader.empty())
         node["customShader"] = lines.customShader;
+    if (!lines.shaderUniforms.empty())
+        node["shaderUniforms"] = encodeShaderUniforms(lines.shaderUniforms);
 
     return node;
 }
@@ -7572,6 +7603,8 @@ LinesComponent editor::Stream::decodeLinesComponent(const YAML::Node& node, cons
     }
 
     if (node["customShader"]) lines.customShader = node["customShader"].as<std::string>();
+    lines.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
+    lines.needUpdateShaderUniforms = true;
 
     lines.loaded = false;
     lines.loadCalled = false;

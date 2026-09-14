@@ -301,6 +301,18 @@ namespace doriax::editor{
         // plus .vert/.frag drag-drop. The .vert/.frag entry points may share a base name or
         // live in separate files (see Util::resolveCustomShaderPaths).
         void drawCustomShaderRow(ComponentType cpType, ShaderType shaderType, SceneProject* sceneProject, std::vector<Entity> entities);
+        // Custom block members of the component's loaded shader (own or scene default
+        // fork), one per name with the vertex declaration first.
+        struct ShaderUniformRows {
+            std::vector<ShaderUniform> members;
+            bool buildFailed = false; // the fork failed and the built-in is rendering
+        };
+        ShaderUniformRows resolveShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity);
+        // rows under the Shader row, stored by name in shaderUniforms
+        void drawShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity, const ShaderUniformRows& rows);
+        // one member row: a label for engine-written and non-editable members, else a
+        // drag field; true with newValue when it changed
+        bool drawShaderUniformRow(const ShaderUniform& uniform, const ShaderUniformValues& values, const std::string& idPrefix, Vector4& newValue);
         // Scene-level variant: edits a scene default shader property (e.g. "default_mesh_shader"),
         // used by every component of that type whose customShader is empty.
         void drawSceneShaderRow(SceneProject* sceneProject, ShaderType shaderType, const char* scenePropertyName, const char* label);

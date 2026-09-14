@@ -5,6 +5,7 @@
 #define LINES_COMPONENT_H
 
 #include "buffer/Buffer.h"
+#include "shader/ShaderUniforms.h"
 #include "Engine.h"
 #include <string>
 
@@ -47,6 +48,11 @@ namespace doriax{
         std::string customShader;
         uint16_t customShaderId = 0;
         int slotVSParams = -1;
+        // values of the fork's custom uniform blocks, by member name
+        ShaderUniformValues shaderUniforms;
+        bool needUpdateShaderUniforms = false;
+        CustomUniformBlock customVSParams;
+        CustomUniformBlock customFSParams;
 
         bool needUpdateBuffer = false;
         bool needReload = false;

@@ -150,3 +150,54 @@ float SkyBox::getRotation() const{
 
     return sky.rotation;
 }
+
+void SkyBox::setCustomShader(const std::string& path){
+    SkyComponent& sky = getComponent<SkyComponent>();
+
+    if (sky.customShader != path){
+        sky.customShader = path;
+
+        sky.needReload = true;
+    }
+}
+
+std::string SkyBox::getCustomShader() const{
+    SkyComponent& sky = getComponent<SkyComponent>();
+
+    return sky.customShader;
+}
+
+void SkyBox::setShaderUniform(const std::string& name, const Vector4& value){
+    SkyComponent& sky = getComponent<SkyComponent>();
+
+    if (ShaderUniforms::set(sky.shaderUniforms, name, value))
+        sky.needUpdateShaderUniforms = true;
+}
+
+void SkyBox::setShaderUniform(const std::string& name, const Vector3& value){
+    setShaderUniform(name, Vector4(value.x, value.y, value.z, 0.0f));
+}
+
+void SkyBox::setShaderUniform(const std::string& name, const Vector2& value){
+    setShaderUniform(name, Vector4(value.x, value.y, 0.0f, 0.0f));
+}
+
+void SkyBox::setShaderUniform(const std::string& name, float value){
+    setShaderUniform(name, Vector4(value, 0.0f, 0.0f, 0.0f));
+}
+
+Vector4 SkyBox::getShaderUniform(const std::string& name) const{
+    SkyComponent& sky = getComponent<SkyComponent>();
+
+    return ShaderUniforms::get(sky.shaderUniforms, name);
+}
+
+bool SkyBox::removeShaderUniform(const std::string& name){
+    SkyComponent& sky = getComponent<SkyComponent>();
+
+    if (!ShaderUniforms::remove(sky.shaderUniforms, name))
+        return false;
+
+    sky.needUpdateShaderUniforms = true;
+    return true;
+}

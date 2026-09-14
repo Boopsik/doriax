@@ -182,6 +182,16 @@ std::string editor::Factory::formatVector4(const Vector4& v) {
     return "Vector4(" + formatFloat(v.x) + ", " + formatFloat(v.y) + ", " + formatFloat(v.z) + ", " + formatFloat(v.w) + ")";
 }
 
+std::string editor::Factory::formatShaderUniforms(const ShaderUniformValues& uniforms) {
+    std::string out = "{";
+    for (size_t i = 0; i < uniforms.size(); i++) {
+        if (i > 0)
+            out += ", ";
+        out += "{" + formatString(uniforms[i].first) + ", " + formatVector4(uniforms[i].second) + "}";
+    }
+    return out + "}";
+}
+
 std::string editor::Factory::formatRect(const Rect& r) {
     return "Rect(" + formatFloat(r.getX()) + ", " + formatFloat(r.getY()) + ", " + formatFloat(r.getWidth()) + ", " + formatFloat(r.getHeight()) + ")";
 }
@@ -792,6 +802,8 @@ std::string editor::Factory::createMeshComponent(int indentSpaces, EntityRegistr
     code << ind << "mesh.renderInReflectionProbes = " << formatBool(mesh.renderInReflectionProbes) << ";\n";
     if (!mesh.customShader.empty())
         code << ind << "mesh.customShader = " << formatString(mesh.customShader) << ";\n";
+    if (!mesh.shaderUniforms.empty())
+        code << ind << "mesh.shaderUniforms = " << formatShaderUniforms(mesh.shaderUniforms) << ";\n";
     code << ind << "mesh.vertexCount = " << formatUInt(mesh.vertexCount) << ";\n";
     //code << ind << "mesh.submeshes.resize(" << formatUInt(mesh.numSubmeshes) << ");\n";
     // Kept for a model too: its load reads the count to find the edited submeshes.
@@ -944,6 +956,8 @@ std::string editor::Factory::createUIComponent(int indentSpaces, EntityRegistry*
     code << ind << "ui.color = " << formatVector4(ui.color) << ";\n";
     if (!ui.customShader.empty())
         code << ind << "ui.customShader = " << formatString(ui.customShader) << ";\n";
+    if (!ui.shaderUniforms.empty())
+        code << ind << "ui.shaderUniforms = " << formatShaderUniforms(ui.shaderUniforms) << ";\n";
     code << formatTexture(indentSpaces, ui.texture, "ui.texture", projectPath);
     addComponentCode(code, ind, sceneName, entityName, entity, "UIComponent", "ui", assignExisting);
     return code.str();
@@ -1547,6 +1561,8 @@ std::string editor::Factory::createSkyComponent(int indentSpaces, EntityRegistry
     code << ind << "sky.visible = " << formatBool(sky.visible) << ";\n";
     if (!sky.customShader.empty())
         code << ind << "sky.customShader = " << formatString(sky.customShader) << ";\n";
+    if (!sky.shaderUniforms.empty())
+        code << ind << "sky.shaderUniforms = " << formatShaderUniforms(sky.shaderUniforms) << ";\n";
 
     addComponentCode(code, ind, sceneName, entityName, entity, "SkyComponent", "sky", assignExisting);
     return code.str();
@@ -2409,13 +2425,8 @@ std::string editor::Factory::createScene(int indentSpaces, Scene* scene, std::st
         out << ind2 << "{\n";
         out << ind3 << "std::vector<PostProcessPass> postProcess;\n";
         for (const PostProcessPass& pass : scene->getPostProcessPasses()) {
-            out << ind3 << "postProcess.push_back({" << formatString(pass.shader) << ", " << formatBool(pass.enabled) << ", {";
-            for (size_t i = 0; i < pass.uniforms.size(); i++) {
-                if (i > 0)
-                    out << ", ";
-                out << "{" << formatString(pass.uniforms[i].first) << ", " << formatVector4(pass.uniforms[i].second) << "}";
-            }
-            out << "}});\n";
+            out << ind3 << "postProcess.push_back({" << formatString(pass.shader) << ", " << formatBool(pass.enabled) << ", "
+                << formatShaderUniforms(pass.uniforms) << "});\n";
         }
         out << ind3 << "scene->setPostProcessPasses(postProcess);\n";
         out << ind2 << "}\n";
@@ -2866,6 +2877,8 @@ std::string editor::Factory::createPointsComponent(int indentSpaces, EntityRegis
     code << ind << "pointscomp.autoTransparency = " << formatBool(p.autoTransparency) << ";\n";
     if (!p.customShader.empty())
         code << ind << "pointscomp.customShader = " << formatString(p.customShader) << ";\n";
+    if (!p.shaderUniforms.empty())
+        code << ind << "pointscomp.shaderUniforms = " << formatShaderUniforms(p.shaderUniforms) << ";\n";
     code << formatTexture(indentSpaces, p.texture, "pointscomp.texture", projectPath);
 
     if (p.numFramesRect > 0) {
@@ -2912,6 +2925,8 @@ std::string editor::Factory::createLinesComponent(int indentSpaces, EntityRegist
     code << ind << "linescomp.maxLines = " << formatUInt(maxLines) << ";\n";
     if (!l.customShader.empty())
         code << ind << "linescomp.customShader = " << formatString(l.customShader) << ";\n";
+    if (!l.shaderUniforms.empty())
+        code << ind << "linescomp.shaderUniforms = " << formatShaderUniforms(l.shaderUniforms) << ";\n";
 
     for (size_t i = 0; i < l.lines.size(); i++) {
         const LineData& line = l.lines[i];

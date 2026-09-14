@@ -198,8 +198,18 @@ namespace doriax{
         const std::string& getDefaultCustomShader(ShaderType type) const;
 
         // ordered user post-process chain; setting it rebuilds the RenderSystem passes
+        // unless only uniform values changed
         const std::vector<PostProcessPass>& getPostProcessPasses() const;
         void setPostProcessPasses(const std::vector<PostProcessPass>& passes);
+
+        // one u_fs_postParams member of a pass; rewrites the value without rebuilding the chain
+        void setPostProcessUniform(unsigned int index, const std::string& name, const Vector4& value);
+        void setPostProcessUniform(unsigned int index, const std::string& name, const Vector3& value);
+        void setPostProcessUniform(unsigned int index, const std::string& name, const Vector2& value);
+        void setPostProcessUniform(unsigned int index, const std::string& name, float value);
+        Vector4 getPostProcessUniform(unsigned int index, const std::string& name) const;
+        void setPostProcessPassEnabled(unsigned int index, bool enabled);
+        bool isPostProcessPassEnabled(unsigned int index) const;
 
         bool canReceiveUIEvents();
 

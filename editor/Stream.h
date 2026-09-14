@@ -130,6 +130,9 @@ namespace doriax::editor {
         static YAML::Node encodeQuaternion(const Quaternion& quat);
         static Quaternion decodeQuaternion(const YAML::Node& node);
 
+        static YAML::Node encodeShaderUniforms(const ShaderUniformValues& uniforms);
+        static ShaderUniformValues decodeShaderUniforms(const YAML::Node& node);
+
         static YAML::Node encodeRect(const Rect& rect);
         static Rect decodeRect(const YAML::Node& node);
 

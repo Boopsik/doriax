@@ -5,6 +5,7 @@
 #define SCENESETTINGS_H
 
 #include "render/Render.h"
+#include "shader/ShaderUniforms.h"
 #include "math/Vector2.h"
 #include "math/Vector3.h"
 #include "math/Vector4.h"
@@ -36,7 +37,15 @@ namespace doriax{
     struct PostProcessPass {
         std::string shader; // project-relative fork base, empty = built-in passthrough
         bool enabled = true;
-        std::vector<std::pair<std::string, Vector4>> uniforms;
+        ShaderUniformValues uniforms;
+
+        // applied by Scene::setPostProcessPasses (Scene::setPostProcessUniform edits a live pass)
+        void setUniform(const std::string& name, const Vector4& value) { ShaderUniforms::set(uniforms, name, value); }
+        void setUniform(const std::string& name, const Vector3& value) { setUniform(name, Vector4(value.x, value.y, value.z, 0.0f)); }
+        void setUniform(const std::string& name, const Vector2& value) { setUniform(name, Vector4(value.x, value.y, 0.0f, 0.0f)); }
+        void setUniform(const std::string& name, float value) { setUniform(name, Vector4(value, 0.0f, 0.0f, 0.0f)); }
+        Vector4 getUniform(const std::string& name) const { return ShaderUniforms::get(uniforms, name); }
+        bool removeUniform(const std::string& name) { return ShaderUniforms::remove(uniforms, name); }
     };
 
     // Plain-data scene configuration whose member initializers are the engine's factory

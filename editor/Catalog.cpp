@@ -193,6 +193,7 @@ namespace {
         makeFastProperty<UIComponent, Vector4, &UIComponent::color>("color", PropertyType::Vector4, UpdateFlags_None),
         makeFastProperty<UIComponent, Texture, &UIComponent::texture>("texture", PropertyType::Texture, UpdateFlags_UI_Texture),
         makeFastProperty<UIComponent, std::string, &UIComponent::customShader>("customShader", PropertyType::String, UpdateFlags_Shader_Reload),
+        makeFastProperty<UIComponent, ShaderUniformValues, &UIComponent::shaderUniforms>("shaderUniforms", PropertyType::Custom, UpdateFlags_Shader_Uniforms),
     };
 
     static const FastPropertyDescriptor kUILayoutProperties[] = {
@@ -514,6 +515,7 @@ namespace {
         makeFastProperty<SkyComponent, float, &SkyComponent::rotation>("rotation", PropertyType::Float, UpdateFlags_Sky),
         makeFastProperty<SkyComponent, bool, &SkyComponent::visible>("visible", PropertyType::Bool, UpdateFlags_None),
         makeFastProperty<SkyComponent, std::string, &SkyComponent::customShader>("customShader", PropertyType::String, UpdateFlags_Shader_Reload),
+        makeFastProperty<SkyComponent, ShaderUniformValues, &SkyComponent::shaderUniforms>("shaderUniforms", PropertyType::Custom, UpdateFlags_Shader_Uniforms),
     };
 
     static const FastPropertyDescriptor kTextProperties[] = {
@@ -583,6 +585,7 @@ namespace {
         makeFastProperty<MeshComponent, bool, &MeshComponent::transparent>("transparent", PropertyType::Bool, UpdateFlags_Mesh_Reload),
         makeFastProperty<MeshComponent, bool, &MeshComponent::autoTransparency>("autoTransparency", PropertyType::Bool, UpdateFlags_Mesh_Reload),
         makeFastProperty<MeshComponent, std::string, &MeshComponent::customShader>("customShader", PropertyType::String, UpdateFlags_Shader_Reload),
+        makeFastProperty<MeshComponent, ShaderUniformValues, &MeshComponent::shaderUniforms>("shaderUniforms", PropertyType::Custom, UpdateFlags_Shader_Uniforms),
         makeFastProperty<MeshComponent, unsigned int, &MeshComponent::numSubmeshes>("numSubmeshes", PropertyType::UInt, UpdateFlags_None),
     };
 
@@ -2670,6 +2673,7 @@ namespace {
         if (propertyName == "autoTransparency") return {PropertyType::Bool, UpdateFlags_None, &def.autoTransparency, &comp->autoTransparency};
         if (propertyName == "texture") return {PropertyType::Texture, UpdateFlags_Points_Texture, &def.texture, &comp->texture};
         if (propertyName == "customShader") return {PropertyType::String, UpdateFlags_Shader_Reload, &def.customShader, &comp->customShader};
+        if (propertyName == "shaderUniforms") return {PropertyType::Custom, UpdateFlags_Shader_Uniforms, &def.shaderUniforms, &comp->shaderUniforms};
 
         if (propertyName == "numFramesRect") {
             return {PropertyType::UInt, UpdateFlags_None, (void*)&def.numFramesRect, (void*)&comp->numFramesRect};
@@ -2752,6 +2756,7 @@ namespace {
         ps["autoTransparency"] = {PropertyType::Bool, UpdateFlags_None, &def.autoTransparency, comp ? &comp->autoTransparency : nullptr};
         ps["texture"] = {PropertyType::Texture, UpdateFlags_Points_Texture, &def.texture, comp ? &comp->texture : nullptr};
         ps["customShader"] = {PropertyType::String, UpdateFlags_Shader_Reload, &def.customShader, comp ? &comp->customShader : nullptr};
+        ps["shaderUniforms"] = {PropertyType::Custom, UpdateFlags_Shader_Uniforms, &def.shaderUniforms, comp ? &comp->shaderUniforms : nullptr};
 
         static std::vector<PointData> defPoints;
         ps["points"] = {PropertyType::Custom, UpdateFlags_Points, (void*)&defPoints, comp ? (void*)&comp->points : nullptr};
@@ -2787,6 +2792,7 @@ namespace {
 
         if (propertyName == "maxLines") return {PropertyType::UInt, UpdateFlags_Lines_Reload, &def.maxLines, &comp->maxLines};
         if (propertyName == "customShader") return {PropertyType::String, UpdateFlags_Shader_Reload, &def.customShader, &comp->customShader};
+        if (propertyName == "shaderUniforms") return {PropertyType::Custom, UpdateFlags_Shader_Uniforms, &def.shaderUniforms, &comp->shaderUniforms};
 
         if (propertyName == "lines") {
             static std::vector<LineData> defLines;
@@ -2832,6 +2838,7 @@ namespace {
 
         ps["maxLines"] = {PropertyType::UInt, UpdateFlags_Lines_Reload, &def.maxLines, comp ? &comp->maxLines : nullptr};
         ps["customShader"] = {PropertyType::String, UpdateFlags_Shader_Reload, &def.customShader, comp ? &comp->customShader : nullptr};
+        ps["shaderUniforms"] = {PropertyType::Custom, UpdateFlags_Shader_Uniforms, &def.shaderUniforms, comp ? &comp->shaderUniforms : nullptr};
 
         static std::vector<LineData> defLines;
         ps["lines"] = {PropertyType::Custom, UpdateFlags_Lines, (void*)&defLines, comp ? (void*)&comp->lines : nullptr};
@@ -3751,6 +3758,49 @@ uint32_t* editor::Catalog::getSubmeshOverrideMask(EntityRegistry* registry, Enti
     return &mesh->submeshes[submeshIndex].overrideFields;
 }
 
+std::vector<const CustomUniformBlock*> editor::Catalog::getShaderUniformBlocks(EntityRegistry* registry, Entity entity, ComponentType component) {
+    std::vector<const CustomUniformBlock*> blocks;
+
+    switch (component) {
+        case ComponentType::MeshComponent:
+            if (MeshComponent* mesh = registry->findComponent<MeshComponent>(entity)) {
+                for (unsigned int i = 0; i < mesh->numSubmeshes; i++)
+                    blocks.push_back(&mesh->submeshes[i].customVSParams);
+                for (unsigned int i = 0; i < mesh->numSubmeshes; i++)
+                    blocks.push_back(&mesh->submeshes[i].customFSParams);
+            }
+            break;
+        case ComponentType::UIComponent:
+            if (UIComponent* ui = registry->findComponent<UIComponent>(entity)) {
+                blocks.push_back(&ui->customVSParams);
+                blocks.push_back(&ui->customFSParams);
+            }
+            break;
+        case ComponentType::PointsComponent:
+            if (PointsComponent* points = registry->findComponent<PointsComponent>(entity)) {
+                blocks.push_back(&points->customVSParams);
+                blocks.push_back(&points->customFSParams);
+            }
+            break;
+        case ComponentType::LinesComponent:
+            if (LinesComponent* lines = registry->findComponent<LinesComponent>(entity)) {
+                blocks.push_back(&lines->customVSParams);
+                blocks.push_back(&lines->customFSParams);
+            }
+            break;
+        case ComponentType::SkyComponent:
+            if (SkyComponent* sky = registry->findComponent<SkyComponent>(entity)) {
+                blocks.push_back(&sky->customVSParams);
+                blocks.push_back(&sky->customFSParams);
+            }
+            break;
+        default:
+            break;
+    }
+
+    return blocks;
+}
+
 void editor::Catalog::updateEntity(EntityRegistry* registry, Entity entity, uint64_t updateFlags){
     if (updateFlags & UpdateFlags_Transform){
         if (Transform* transform = registry->findComponent<Transform>(entity)){
@@ -3848,6 +3898,13 @@ void editor::Catalog::updateEntity(EntityRegistry* registry, Entity entity, uint
         if (PointsComponent* p = registry->findComponent<PointsComponent>(entity)) p->needReload = true;
         if (LinesComponent* l = registry->findComponent<LinesComponent>(entity)) l->needReload = true;
         if (SkyComponent* s = registry->findComponent<SkyComponent>(entity)) s->needReload = true;
+    }
+    if (updateFlags & UpdateFlags_Shader_Uniforms){
+        if (MeshComponent* m = registry->findComponent<MeshComponent>(entity)) m->needUpdateShaderUniforms = true;
+        if (UIComponent* u = registry->findComponent<UIComponent>(entity)) u->needUpdateShaderUniforms = true;
+        if (PointsComponent* p = registry->findComponent<PointsComponent>(entity)) p->needUpdateShaderUniforms = true;
+        if (LinesComponent* l = registry->findComponent<LinesComponent>(entity)) l->needUpdateShaderUniforms = true;
+        if (SkyComponent* s = registry->findComponent<SkyComponent>(entity)) s->needUpdateShaderUniforms = true;
     }
     if (updateFlags & UpdateFlags_Sprite){
         if (SpriteComponent* sprite = registry->findComponent<SpriteComponent>(entity)){
@@ -4350,6 +4407,10 @@ void editor::Catalog::copyPropertyValue(EntityRegistry* sourceRegistry, Entity s
                        (property == "blendMaps" || property == "textureLayers")) {
                 auto* source = Catalog::getPropertyRef<std::vector<Texture>>(sourceRegistry, sourceEntity, compType, property);
                 auto* target = Catalog::getPropertyRef<std::vector<Texture>>(targetRegistry, targetEntity, compType, property);
+                if (source && target) *target = *source;
+            } else if (property == "shaderUniforms") {
+                auto* source = Catalog::getPropertyRef<ShaderUniformValues>(sourceRegistry, sourceEntity, compType, property);
+                auto* target = Catalog::getPropertyRef<ShaderUniformValues>(targetRegistry, targetEntity, compType, property);
                 if (source && target) *target = *source;
             }
             break;

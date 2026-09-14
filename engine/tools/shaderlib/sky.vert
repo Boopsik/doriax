@@ -1,5 +1,16 @@
 #version 450
 
+// A fork may declare a u_vs_customParams block: its members are filled by name from the
+// component's shader uniforms (Properties window, setShaderUniform). Two names are
+// written by the engine instead: "time" (seconds since startup) and "resolution"
+// (xy = render target size, zw = 1 / size). Do not mix int and float members: GL
+// uploads the block typed after its first member.
+//
+//   uniform u_vs_customParams {
+//       float time;
+//       vec4 tint;
+//   } customParams;
+
 in vec3 a_position;
 
 out vec3 uv;

@@ -356,6 +356,11 @@ namespace doriax{
 		int ssaoBlurSlotParams;
 		TextureRender* currentSSAOTexture; // AO bound to meshes this camera (or empty white)
 
+		// engine-written custom uniforms: seconds since startup, sampled once per draw(),
+		// and the size of the color target of the camera pass being drawn
+		float frameTime;
+		Vector2 passResolution;
+
 		// SSR: per-frame fullscreen passes for the main camera. The opaque color pass
 		// renders into sceneColorFramebuffer, the ssr pass marches the depth pre-pass
 		// and samples that color, then the composite pass blends reflections into the
@@ -402,20 +407,17 @@ namespace doriax{
 		struct PostProcessRuntime{
 			std::shared_ptr<ShaderRender> shader;
 			ObjectRender render;
+			int passIndex;                         // index in the scene chain (disabled passes skipped)
 			uint16_t customId;                     // 0 = built-in passthrough
-			int slotParams;                        // -1 when the fork has no u_fs_postParams
-			std::vector<uint8_t> params;           // packed block, applied as raw bytes
+			CustomUniformBlock params;             // u_fs_postParams, slot -1 when the fork has none
 			std::pair<int, int> slotSceneColor;
 			std::pair<int, int> slotDepth;
 			std::pair<int, int> slotGBuffer;
 			std::pair<int, int> slotSSAO;
-			bool hasResolution;                    // members the engine writes per frame
-			bool hasTime;
-			ShaderUniform resolutionUniform;
-			ShaderUniform timeUniform;
 		};
 		bool postProcessLoaded;
 		bool postProcessNeedReload;
+		bool postProcessNeedUpdateUniforms;    // rewrite pass values, no chain rebuild
 		bool postProcessNeedsDepth;            // a pass samples the depth texture
 		bool postProcessNeedsGBuffer;          // a pass samples the G-buffer (needs SSR)
 		unsigned int postProcessWidth;
@@ -544,6 +546,7 @@ namespace doriax{
 
 		// user post-process chain
 		void loadPostProcess();
+		void updatePostProcessUniforms();
 		void destroyPostProcess();
 		bool ensurePostProcessFramebuffers(unsigned int width, unsigned int height);
 		// runs the chain from ping-pong buffer 0 into destination (swapchain when null)
@@ -621,6 +624,7 @@ namespace doriax{
 		void needReloadLines();
 		void needReloadMeshes();
 		void needReloadPostProcess();
+		void needUpdatePostProcessUniforms();
 		void needReloadUIs();
 		void needReloadSky();
 		void prepareMeshForDataReload(Entity entity, MeshComponent& mesh);

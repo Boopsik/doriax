@@ -210,3 +210,54 @@ AABB Image::getWorldAABB() const{
 
     return ui.worldAABB;
 }
+
+void Image::setCustomShader(const std::string& path){
+    UIComponent& ui = getComponent<UIComponent>();
+
+    if (ui.customShader != path){
+        ui.customShader = path;
+
+        ui.needReload = true;
+    }
+}
+
+std::string Image::getCustomShader() const{
+    UIComponent& ui = getComponent<UIComponent>();
+
+    return ui.customShader;
+}
+
+void Image::setShaderUniform(const std::string& name, const Vector4& value){
+    UIComponent& ui = getComponent<UIComponent>();
+
+    if (ShaderUniforms::set(ui.shaderUniforms, name, value))
+        ui.needUpdateShaderUniforms = true;
+}
+
+void Image::setShaderUniform(const std::string& name, const Vector3& value){
+    setShaderUniform(name, Vector4(value.x, value.y, value.z, 0.0f));
+}
+
+void Image::setShaderUniform(const std::string& name, const Vector2& value){
+    setShaderUniform(name, Vector4(value.x, value.y, 0.0f, 0.0f));
+}
+
+void Image::setShaderUniform(const std::string& name, float value){
+    setShaderUniform(name, Vector4(value, 0.0f, 0.0f, 0.0f));
+}
+
+Vector4 Image::getShaderUniform(const std::string& name) const{
+    UIComponent& ui = getComponent<UIComponent>();
+
+    return ShaderUniforms::get(ui.shaderUniforms, name);
+}
+
+bool Image::removeShaderUniform(const std::string& name){
+    UIComponent& ui = getComponent<UIComponent>();
+
+    if (!ShaderUniforms::remove(ui.shaderUniforms, name))
+        return false;
+
+    ui.needUpdateShaderUniforms = true;
+    return true;
+}
