@@ -4308,10 +4308,10 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
 
     // Off-thread previews cannot safely build child/skeleton entities, so bake glTF node globals into
     // a flat static mesh instead. Skinned nodes are baked too, but a skinned mesh node's own transform
-    // is ignored (the skeleton drives it): in bind pose the on-thread render collapses every joint to
-    // the model root global `matrix`, so that is what gets baked — reproducing the scene layout without
-    // a live skeleton. Non-skinned nodes bake their own global transform. (Async is always the flatten
-    // path, so useChildEntities is already false here.)
+    // is ignored (the skeleton drives it): in bind pose every joint global cancels its inverse bind
+    // matrix, so the raw vertices already sit in scene space and bake with the identity. Non-skinned
+    // nodes bake their own global transform. (Async is always the flatten path, so useChildEntities
+    // is already false here.)
     bool bakingFlatten = (Engine::isAsyncThread() && (meshNodes.size() > 1 || anyNodeSkinned))
         || mergeMeshNodes;
 
@@ -4430,11 +4430,10 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
         Matrix4 nodeBakeMatrix;
         Matrix3 nodeBakeNormalMatrix;
         if (bakingFlatten) {
-            // A skinned mesh node ignores its own transform (the skeleton drives it); the on-thread
-            // render collapses its bind pose to the model root global `matrix`, so bake that. Non-skinned
-            // nodes are placed by their own global transform.
+            // Skinned vertices are already in scene space (bind pose: joint * inverseBind = I), so
+            // only non-skinned nodes are placed by their own global transform.
             nodeBakeMatrix = (model.gltfModel->nodes[nodeIdx].skin >= 0)
-                                 ? matrix
+                                 ? Matrix4()
                                  : getGLTFMeshGlobalMatrix(nodeIdx, model, nodesParent);
             nodeBakeNormalMatrix = nodeBakeMatrix.linear().inverse(1e-6f).transpose();
         }
