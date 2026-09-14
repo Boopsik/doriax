@@ -5053,7 +5053,8 @@ editor::Properties::ShaderUniformRows editor::Properties::resolveShaderUniformRo
     ShaderUniformRows rows;
     Scene* scene = sceneProject->scene;
 
-    for (const CustomUniformBlock* block : Catalog::getShaderUniformBlocks(scene, entity, cpType)) {
+    std::vector<const CustomUniformBlock*> blocks = Catalog::getShaderUniformBlocks(scene, entity, cpType);
+    for (const CustomUniformBlock* block : blocks) {
         for (const ShaderUniform& uniform : block->members) {
             bool listed = false;
             for (const ShaderUniform& existing : rows.members) {
@@ -5066,32 +5067,20 @@ editor::Properties::ShaderUniformRows editor::Properties::resolveShaderUniformRo
                 rows.members.push_back(uniform);
         }
     }
-
-    // a failed fork reloads on the built-in, which registers no custom id
-    auto resolveStatus = [&rows, scene](const std::string& customShader, ShaderType shaderType, bool loaded, bool needReload, uint16_t customShaderId) {
-        const std::string& effective = customShader.empty() ? scene->getDefaultCustomShader(shaderType) : customShader;
-        rows.buildFailed = !effective.empty() && loaded && !needReload && customShaderId == 0;
-    };
-
-    if (cpType == ComponentType::MeshComponent) {
-        if (MeshComponent* mesh = scene->findComponent<MeshComponent>(entity))
-            resolveStatus(mesh->customShader, ShaderType::MESH, mesh->loaded, mesh->needReload,
-                          mesh->numSubmeshes > 0 ? mesh->submeshes[0].customShaderId : 0);
-    } else if (cpType == ComponentType::UIComponent) {
-        if (UIComponent* ui = scene->findComponent<UIComponent>(entity))
-            resolveStatus(ui->customShader, ShaderType::UI, ui->loaded, ui->needReload, ui->customShaderId);
-    } else if (cpType == ComponentType::SkyComponent) {
-        if (SkyComponent* sky = scene->findComponent<SkyComponent>(entity))
-            resolveStatus(sky->customShader, ShaderType::SKYBOX, sky->loaded, sky->needReload, sky->customShaderId);
-    } else if (cpType == ComponentType::PointsComponent) {
-        if (PointsComponent* points = scene->findComponent<PointsComponent>(entity))
-            resolveStatus(points->customShader, ShaderType::POINTS, points->loaded, points->needReload, points->customShaderId);
-    } else if (cpType == ComponentType::LinesComponent) {
-        if (LinesComponent* lines = scene->findComponent<LinesComponent>(entity))
-            resolveStatus(lines->customShader, ShaderType::LINES, lines->loaded, lines->needReload, lines->customShaderId);
-    }
+    rows.warnings = Catalog::getShaderUniformWarnings(blocks);
+    rows.buildFailed = Catalog::isCustomShaderBuildFailed(scene, entity, cpType);
 
     return rows;
+}
+
+void editor::Properties::drawShaderUniformWarnings(const std::vector<std::string>& warnings){
+    for (const std::string& warning : warnings) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(1);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.2f, 1.0f));
+        ImGui::TextWrapped("%s", warning.c_str());
+        ImGui::PopStyleColor();
+    }
 }
 
 bool editor::Properties::drawShaderUniformRow(const ShaderUniform& uniform, const ShaderUniformValues& values, const std::string& idPrefix, Vector4& newValue){
@@ -5117,7 +5106,7 @@ bool editor::Properties::drawShaderUniformRow(const ShaderUniform& uniform, cons
         ImGui::SameLine();
         helpMarker(uniform.arrayCount > 1
             ? "Array members take no value and stay zero. Declare one scalar or vector member per value instead."
-            : "Matrix members take no value and stay zero. Only float/int scalars and vectors can be edited.");
+            : "Only float and int scalars and vectors take a value; this member stays zero.");
         return false;
     }
 
@@ -5184,6 +5173,8 @@ void editor::Properties::drawShaderUniformRows(ComponentType cpType, SceneProjec
                 new PropertyCmd<ShaderUniformValues>(project, sceneId, entity, cpType, "shaderUniforms", newValues));
         }
     }
+
+    drawShaderUniformWarnings(rows.warnings);
 }
 
 void editor::Properties::drawSceneShaderRow(SceneProject* sceneProject, ShaderType shaderType, const char* scenePropertyName, const char* label){
@@ -5233,8 +5224,7 @@ editor::Properties::PostProcessShader editor::Properties::resolvePostProcessShad
     resolved.shader = ShaderPool::get(ShaderType::POSTPROCESS, 0, customId);
 
     if (!resolved.buildFailed && resolved.shader && resolved.shader->isCreated()){
-        unsigned int sizeBytes = 0;
-        resolved.members = resolved.shader->shaderData.getUniformBlockMembers("u_fs_postParams", sizeBytes);
+        resolved.block.resolve(resolved.shader->shaderData, "u_fs_postParams");
     }
 
     return resolved;
@@ -5244,17 +5234,8 @@ editor::Properties::PostProcessShader editor::Properties::resolvePostProcessShad
 float editor::Properties::getPostProcessLabelSize(const PostProcessShader& resolved){
     // no reset arrow on these rows, so they only need getLabelSize's half-icon padding
     float width = getLabelSize("Shader", false);
-    if (!resolved.members)
-        return width;
-
-    // measures the reflected name in place, so sizing the column allocates nothing
-    float padding = ImGui::CalcTextSize(ICON_FA_ROTATE_LEFT).x / 2.0f;
-    for (size_t m = 0; m < resolved.members->size(); m++){
-        const std::string& name = (*resolved.members)[m].name;
-        size_t dot = name.rfind('.');
-        const char* shortName = name.c_str() + (dot == std::string::npos ? 0 : dot + 1);
-        width = std::max(width, ImGui::CalcTextSize(shortName).x + padding);
-    }
+    for (const ShaderUniform& uniform : resolved.block.members)
+        width = std::max(width, getLabelSize(uniform.name, false));
 
     return width;
 }
@@ -5271,15 +5252,7 @@ void editor::Properties::drawPostProcessUniforms(uint32_t sceneId, const std::ve
         return;
     }
 
-    // compiled fine, the pass just declares no uniforms
-    if (!resolved.members)
-        return;
-
-    for (size_t m = 0; m < resolved.members->size(); m++){
-        // reflected as "instance.member"; the rows use the short name
-        ShaderUniform uniform = (*resolved.members)[m];
-        uniform.name = ShaderData::getUniformShortName(uniform.name);
-
+    for (const ShaderUniform& uniform : resolved.block.members){
         Vector4 newValue;
         if (drawShaderUniformRow(uniform, passes[index].uniforms, "##pp_uniform_", newValue)){
             std::vector<PostProcessPass> newPasses = passes;
@@ -5290,6 +5263,8 @@ void editor::Properties::drawPostProcessUniforms(uint32_t sceneId, const std::ve
                 new ScenePropertyCmd<std::vector<PostProcessPass>>(project, sceneId, "post_process", newPasses));
         }
     }
+
+    drawShaderUniformWarnings(Catalog::getShaderUniformWarnings({&resolved.block}));
 }
 
 void editor::Properties::drawScenePostProcess(SceneProject* sceneProject){

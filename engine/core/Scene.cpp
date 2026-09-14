@@ -536,6 +536,17 @@ Vector4 Scene::getPostProcessUniform(unsigned int index, const std::string& name
     return ShaderUniforms::get(settings.postProcess[index].uniforms, name);
 }
 
+bool Scene::removePostProcessUniform(unsigned int index, const std::string& name){
+    if (index >= settings.postProcess.size())
+        return false;
+
+    if (!ShaderUniforms::remove(settings.postProcess[index].uniforms, name))
+        return false;
+
+    getSystem<RenderSystem>()->needUpdatePostProcessUniforms();
+    return true;
+}
+
 void Scene::setPostProcessPassEnabled(unsigned int index, bool enabled){
     if (index >= settings.postProcess.size()){
         Log::error("Post-process pass %u does not exist, cannot enable it", index);

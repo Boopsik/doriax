@@ -191,6 +191,10 @@ namespace doriax::editor{
 
         // custom uniform blocks of a Mesh/UI/Points/Lines/Sky component's loaded shader, vertex first
         static std::vector<const CustomUniformBlock*> getShaderUniformBlocks(EntityRegistry* registry, Entity entity, ComponentType component);
+        // declarations the engine cannot upload right: mixed int/float blocks, one name with two types
+        static std::vector<std::string> getShaderUniformWarnings(const std::vector<const CustomUniformBlock*>& blocks);
+        // the component's custom shader (own or scene default) failed and the built-in is rendering
+        static bool isCustomShaderBuildFailed(Scene* scene, Entity entity, ComponentType component);
 
         template<typename T>
         static T* getPropertyRef(EntityRegistry* registry, Entity entity, ComponentType component, std::string propertyName){

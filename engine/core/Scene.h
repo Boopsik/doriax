@@ -208,6 +208,7 @@ namespace doriax{
         void setPostProcessUniform(unsigned int index, const std::string& name, const Vector2& value);
         void setPostProcessUniform(unsigned int index, const std::string& name, float value);
         Vector4 getPostProcessUniform(unsigned int index, const std::string& name) const;
+        bool removePostProcessUniform(unsigned int index, const std::string& name);
         void setPostProcessPassEnabled(unsigned int index, bool enabled);
         bool isPostProcessPassEnabled(unsigned int index) const;
 

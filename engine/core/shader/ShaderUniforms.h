@@ -39,6 +39,7 @@ namespace doriax{
         std::vector<uint8_t> data; // rounded up to the vec4 stride
         int timeMember = -1;
         int resolutionMember = -1;
+        bool mixedTypes = false; // int and float members together, which GL uploads wrong
 
         bool resolve(ShaderData& shaderData, const std::string& blockName);
         void clear();

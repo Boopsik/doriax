@@ -3801,6 +3801,64 @@ std::vector<const CustomUniformBlock*> editor::Catalog::getShaderUniformBlocks(E
     return blocks;
 }
 
+std::vector<std::string> editor::Catalog::getShaderUniformWarnings(const std::vector<const CustomUniformBlock*>& blocks) {
+    std::vector<std::string> warnings;
+
+    for (size_t b = 0; b < blocks.size(); b++) {
+        if (blocks[b]->mixedTypes) {
+            warnings.push_back("A block mixes int and float members, which OpenGL uploads incorrectly. Keep one block to one scalar kind.");
+        }
+        for (const ShaderUniform& uniform : blocks[b]->members) {
+            for (size_t other = 0; other < b; other++) {
+                for (const ShaderUniform& existing : blocks[other]->members) {
+                    if (existing.name == uniform.name && existing.type != uniform.type) {
+                        warnings.push_back("'" + uniform.name + "' has different types in the vertex and fragment blocks; one value feeds both.");
+                    }
+                }
+            }
+        }
+    }
+
+    return warnings;
+}
+
+bool editor::Catalog::isCustomShaderBuildFailed(Scene* scene, Entity entity, ComponentType component) {
+    // a failed fork reloads on the built-in, which registers no custom id; a pending
+    // reload still carries the previous id
+    auto failed = [scene](const std::string& customShader, ShaderType shaderType, bool loaded, bool needReload, uint16_t customShaderId) {
+        const std::string& effective = customShader.empty() ? scene->getDefaultCustomShader(shaderType) : customShader;
+        return !effective.empty() && loaded && !needReload && customShaderId == 0;
+    };
+
+    switch (component) {
+        case ComponentType::MeshComponent:
+            if (MeshComponent* mesh = scene->findComponent<MeshComponent>(entity))
+                return failed(mesh->customShader, ShaderType::MESH, mesh->loaded, mesh->needReload,
+                              mesh->numSubmeshes > 0 ? mesh->submeshes[0].customShaderId : 0);
+            break;
+        case ComponentType::UIComponent:
+            if (UIComponent* ui = scene->findComponent<UIComponent>(entity))
+                return failed(ui->customShader, ShaderType::UI, ui->loaded, ui->needReload, ui->customShaderId);
+            break;
+        case ComponentType::PointsComponent:
+            if (PointsComponent* points = scene->findComponent<PointsComponent>(entity))
+                return failed(points->customShader, ShaderType::POINTS, points->loaded, points->needReload, points->customShaderId);
+            break;
+        case ComponentType::LinesComponent:
+            if (LinesComponent* lines = scene->findComponent<LinesComponent>(entity))
+                return failed(lines->customShader, ShaderType::LINES, lines->loaded, lines->needReload, lines->customShaderId);
+            break;
+        case ComponentType::SkyComponent:
+            if (SkyComponent* sky = scene->findComponent<SkyComponent>(entity))
+                return failed(sky->customShader, ShaderType::SKYBOX, sky->loaded, sky->needReload, sky->customShaderId);
+            break;
+        default:
+            break;
+    }
+
+    return false;
+}
+
 void editor::Catalog::updateEntity(EntityRegistry* registry, Entity entity, uint64_t updateFlags){
     if (updateFlags & UpdateFlags_Transform){
         if (Transform* transform = registry->findComponent<Transform>(entity)){

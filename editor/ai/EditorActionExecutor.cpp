@@ -4370,22 +4370,26 @@ void appendShaderUniformMembers(Json& members, const CustomUniformBlock& block, 
     }
 }
 
-void collectComponentShaderUniformMembers(Json& members, EntityRegistry* registry, Entity entity,
+void collectComponentShaderUniformMembers(Json& members, Json& warnings, EntityRegistry* registry, Entity entity,
                                           ComponentType component, const ShaderUniformValues& values) {
-    for (const CustomUniformBlock* block : Catalog::getShaderUniformBlocks(registry, entity, component)) {
+    std::vector<const CustomUniformBlock*> blocks = Catalog::getShaderUniformBlocks(registry, entity, component);
+    for (const CustomUniformBlock* block : blocks) {
         appendShaderUniformMembers(members, *block, values);
     }
+    warnings = Catalog::getShaderUniformWarnings(blocks);
 }
 
 // reflected from the pool; a pass still building or failed lists none
-void collectPassShaderUniformMembers(Json& members, const PostProcessPass& pass, bool& buildFailed) {
+void collectPassShaderUniformMembers(Json& members, Json& warnings, const PostProcessPass& pass, bool& buildFailed) {
     uint16_t customId = ShaderPool::registerCustomShader(pass.shader);
     buildFailed = customId != 0 && ShaderPool::isShaderBuildFailed(ShaderType::POSTPROCESS, 0, customId);
     std::shared_ptr<ShaderRender> shader = ShaderPool::get(ShaderType::POSTPROCESS, 0, customId);
+    warnings = Json::array();
     if (!buildFailed && shader && shader->isCreated()) {
         CustomUniformBlock block;
         block.resolve(shader->shaderData, "u_fs_postParams");
         appendShaderUniformMembers(members, block, pass.uniforms);
+        warnings = Catalog::getShaderUniformWarnings({&block});
     }
 }
 
@@ -4448,8 +4452,9 @@ ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) 
         }
         const PostProcessPass& pass = passes[passIndex];
 
+        Json warnings;
         bool buildFailed = false;
-        collectPassShaderUniformMembers(members, pass, buildFailed);
+        collectPassShaderUniformMembers(members, warnings, pass, buildFailed);
 
         return okResult("Inspected post-process pass uniforms.",
                         Json{{"scene_id", sceneId},
@@ -4458,6 +4463,7 @@ ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) 
                              {"enabled", pass.enabled},
                              {"build_failed", buildFailed},
                              {"members", members},
+                             {"warnings", warnings},
                              {"values", shaderUniformValuesJson(pass.uniforms)}});
     }
 
@@ -4474,7 +4480,8 @@ ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) 
     const std::string effectiveShader = customShader->empty()
         ? sceneProject->scene->getDefaultCustomShader(shaderType) : *customShader;
 
-    collectComponentShaderUniformMembers(members, sceneProject->scene, entity, component, *valuesRef);
+    Json warnings;
+    collectComponentShaderUniformMembers(members, warnings, sceneProject->scene, entity, component, *valuesRef);
 
     return okResult("Inspected shader uniforms.",
                     Json{{"scene_id", sceneId},
@@ -4482,7 +4489,9 @@ ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) 
                          {"component", Catalog::getComponentName(component)},
                          {"custom_shader", *customShader},
                          {"effective_shader", effectiveShader},
+                         {"build_failed", Catalog::isCustomShaderBuildFailed(sceneProject->scene, entity, component)},
                          {"members", members},
+                         {"warnings", warnings},
                          {"values", shaderUniformValuesJson(*valuesRef)}});
 }
 
@@ -4517,8 +4526,9 @@ ActionResult EditorActionExecutor::setShaderUniform(const Json& arguments) {
             new ScenePropertyCmd<std::vector<PostProcessPass>>(project, sceneId, "post_process", passes));
 
         Json declared = Json::array();
+        Json warnings;
         bool buildFailed = false;
-        collectPassShaderUniformMembers(declared, passes[passIndex], buildFailed);
+        collectPassShaderUniformMembers(declared, warnings, passes[passIndex], buildFailed);
         bool declaredMember = false;
         std::string message = remove ? "Removed post-process uniform through the command history."
                                      : "Set post-process uniform through the command history.";
@@ -4544,7 +4554,8 @@ ActionResult EditorActionExecutor::setShaderUniform(const Json& arguments) {
         new PropertyCmd<ShaderUniformValues>(project, sceneId, entity, component, "shaderUniforms", values));
 
     Json declared = Json::array();
-    collectComponentShaderUniformMembers(declared, sceneProject->scene, entity, component, values);
+    Json warnings;
+    collectComponentShaderUniformMembers(declared, warnings, sceneProject->scene, entity, component, values);
     bool declaredMember = false;
     std::string message = remove ? "Removed shader uniform through the command history."
                                  : "Set shader uniform through the command history.";

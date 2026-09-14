@@ -305,6 +305,7 @@ namespace doriax::editor{
         // fork), one per name with the vertex declaration first.
         struct ShaderUniformRows {
             std::vector<ShaderUniform> members;
+            std::vector<std::string> warnings;
             bool buildFailed = false; // the fork failed and the built-in is rendering
         };
         ShaderUniformRows resolveShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity);
@@ -313,6 +314,7 @@ namespace doriax::editor{
         // one member row: a label for engine-written and non-editable members, else a
         // drag field; true with newValue when it changed
         bool drawShaderUniformRow(const ShaderUniform& uniform, const ShaderUniformValues& values, const std::string& idPrefix, Vector4& newValue);
+        void drawShaderUniformWarnings(const std::vector<std::string>& warnings);
         // Scene-level variant: edits a scene default shader property (e.g. "default_mesh_shader"),
         // used by every component of that type whose customShader is empty.
         void drawSceneShaderRow(SceneProject* sceneProject, ShaderType shaderType, const char* scenePropertyName, const char* label);
@@ -324,7 +326,7 @@ namespace doriax::editor{
         // pass per frame and shared by the label column and the uniform rows.
         struct PostProcessShader {
             std::shared_ptr<ShaderRender> shader;
-            const std::vector<ShaderUniform>* members = nullptr;
+            CustomUniformBlock block; // u_fs_postParams, slot -1 when not declared
             bool buildFailed = false;
         };
         PostProcessShader resolvePostProcessShader(const PostProcessPass& pass);

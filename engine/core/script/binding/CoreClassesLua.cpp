@@ -692,6 +692,7 @@ void LuaBinding::registerCoreClasses(lua_State *L){
             luabridge::overload<unsigned int, const std::string&, const Vector2&>(&Scene::setPostProcessUniform),
             luabridge::overload<unsigned int, const std::string&, float>(&Scene::setPostProcessUniform))
         .addFunction("getPostProcessUniform", &Scene::getPostProcessUniform)
+        .addFunction("removePostProcessUniform", &Scene::removePostProcessUniform)
         .addFunction("setPostProcessPassEnabled", &Scene::setPostProcessPassEnabled)
         .addFunction("isPostProcessPassEnabled", &Scene::isPostProcessPassEnabled)
         .addFunction("canReceiveUIEvents", &Scene::canReceiveUIEvents)

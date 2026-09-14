@@ -86,6 +86,8 @@ bool CustomUniformBlock::resolve(ShaderData& shaderData, const std::string& bloc
     // the backend declares the block rounded up to 16 bytes
     data.assign(((sizeBytes + 15) / 16) * 16, 0);
 
+    bool hasFloat = false;
+    bool hasInt = false;
     members.reserve(reflected->size());
     for (size_t m = 0; m < reflected->size(); m++){
         ShaderUniform uniform = (*reflected)[m];
@@ -95,8 +97,14 @@ bool CustomUniformBlock::resolve(ShaderData& shaderData, const std::string& bloc
         }else if (uniform.name == "resolution"){
             resolutionMember = (int)members.size();
         }
+        if (uniform.type >= ShaderUniformType::INT && uniform.type <= ShaderUniformType::INT4){
+            hasInt = true;
+        }else{
+            hasFloat = true;
+        }
         members.push_back(uniform);
     }
+    mixedTypes = hasInt && hasFloat;
 
     return true;
 }
@@ -107,6 +115,7 @@ void CustomUniformBlock::clear(){
     data.clear();
     timeMember = -1;
     resolutionMember = -1;
+    mixedTypes = false;
 }
 
 void CustomUniformBlock::writeValues(const ShaderUniformValues& values){
