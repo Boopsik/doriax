@@ -4308,10 +4308,9 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
 
     // Off-thread previews cannot safely build child/skeleton entities, so bake glTF node globals into
     // a flat static mesh instead. Skinned nodes are baked too, but a skinned mesh node's own transform
-    // is ignored (the skeleton drives it): in bind pose every joint global cancels its inverse bind
-    // matrix, so the raw vertices already sit in scene space and bake with the identity. Non-skinned
-    // nodes bake their own global transform. (Async is always the flatten path, so useChildEntities
-    // is already false here.)
+    // is ignored (the skeleton drives it): they bake with the skin root's default-pose matrix instead
+    // (joint global * inverse bind, identity for a consistent export). Non-skinned nodes bake their own
+    // global transform. (Async is always the flatten path, so useChildEntities is already false here.)
     bool bakingFlatten = (Engine::isAsyncThread() && (meshNodes.size() > 1 || anyNodeSkinned))
         || mergeMeshNodes;
 
@@ -4430,11 +4429,15 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
         Matrix4 nodeBakeMatrix;
         Matrix3 nodeBakeNormalMatrix;
         if (bakingFlatten) {
-            // Skinned vertices are already in scene space (bind pose: joint * inverseBind = I), so
-            // only non-skinned nodes are placed by their own global transform.
-            nodeBakeMatrix = (model.gltfModel->nodes[nodeIdx].skin >= 0)
-                                 ? Matrix4()
-                                 : getGLTFMeshGlobalMatrix(nodeIdx, model, nodesParent);
+            // Skinned nodes follow the skin root's default pose (a thumbnail approximation when
+            // inverse binds are omitted); rigid nodes their own global transform.
+            const int bakeSkin = model.gltfModel->nodes[nodeIdx].skin;
+            if (isValidGLTFIndex(bakeSkin, model.gltfModel->skins) && !model.gltfModel->skins[bakeSkin].joints.empty()) {
+                nodeBakeMatrix = getGLTFMeshGlobalMatrix(model.gltfModel->skins[bakeSkin].joints[0], model, nodesParent) *
+                    getGLTFInverseBindMatrix(model, bakeSkin, 0);
+            } else {
+                nodeBakeMatrix = getGLTFMeshGlobalMatrix(nodeIdx, model, nodesParent);
+            }
             nodeBakeNormalMatrix = nodeBakeMatrix.linear().inverse(1e-6f).transpose();
         }
 
