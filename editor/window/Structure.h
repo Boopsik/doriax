@@ -85,6 +85,11 @@ namespace doriax::editor{
         std::unordered_set<const TreeNode*> revealOpenNodes;
         const TreeNode* revealTargetNode = nullptr;
 
+        // F2 pressed this frame: rename the single selected row, or the hovered one
+        bool renameRequested = false;
+        bool renameTargetIsScene = false;
+        Entity renameTargetEntity = NULL_ENTITY;
+
         std::vector<Entity> getTopLevelSelectedEntities(Entity draggedEntity);
         std::vector<Entity> getMovableDraggedEntities(Entity draggedEntity, const TreeNode& targetNode, InsertionType type);
         void moveDraggedEntitiesToTarget(const std::vector<Entity>& draggedEntities, Entity target, InsertionType type);
@@ -101,6 +106,7 @@ namespace doriax::editor{
         void showNewEntityMenu(bool isScene, Entity parent, bool addToBundle);
         void rebuildEntityTree(SceneProject* sceneProject, TreeNode& root, std::unordered_set<Entity>& sceneEntitiesSet);
         void showIconMenu();
+        void showRenameInput(const TreeNode& node, bool focusInput);
         void showTreeNode(TreeNode& node);
         void syncSceneWindowSelectionHierarchy(const TreeNode& node, uint32_t collapsedSceneId = NULL_PROJECT_SCENE, Entity collapsedAncestor = NULL_ENTITY);
         bool collectRevealPath(TreeNode& node);

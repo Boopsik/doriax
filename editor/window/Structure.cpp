@@ -1108,6 +1108,27 @@ void editor::Structure::saveNodeAsBundle(const TreeNode& node) {
     }
 }
 
+void editor::Structure::showRenameInput(const editor::TreeNode& node, bool focusInput) {
+    ImGui::Text("Name:");
+
+    if (focusInput && ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::PushItemWidth(200);
+    if (ImGui::InputText("##ChangeNameInput", nameBuffer, IM_ARRAYSIZE(nameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+        ImGui::CloseCurrentPopup();
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit() && nameBuffer[0] != '\0' && strcmp(nameBuffer, node.name.c_str()) != 0) {
+        if (node.isScene) {
+            CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new SceneNameCmd(project, node.id, nameBuffer));
+        } else {
+            CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new EntityNameCmd(project, project->getSelectedSceneId(), node.id, nameBuffer));
+        }
+    }
+    ImGui::PopItemWidth();
+}
+
 void editor::Structure::showTreeNode(editor::TreeNode& node) {
     // Skip nodes that don't match search and don't have matching descendants
     bool hasSearch = strlen(searchBuffer) > 0;
@@ -1223,6 +1244,8 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
     bool nodeHovered = ImGui::IsItemHovered();
     bool nodeActive = ImGui::IsItemActive();
     bool nodeRightClicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
+    ImVec2 nodeRectMin = ImGui::GetItemRectMin();
+    ImVec2 nodeRectMax = ImGui::GetItemRectMax();
 
     // Pop color if we pushed it
     if (pushedHighlightColor) {
@@ -1569,40 +1592,30 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
         ImGui::OpenPopup("ContextMenu");
     }
 
-    if (nodeHovered && ImGui::IsKeyDown(ImGuiKey_F2)) {
+    // Child scenes and their entities are view-only here, like in the context menu
+    bool renameNode = false;
+    if (renameRequested && !node.isChildScene && !isChildSceneEntity) {
+        if (renameTargetEntity != NULL_ENTITY || renameTargetIsScene) {
+            renameNode = node.isScene ? renameTargetIsScene : (node.id == renameTargetEntity);
+        } else {
+            renameNode = nodeHovered;
+        }
+    }
+    if (renameNode) {
         strncpy(nameBuffer, node.name.c_str(), sizeof(nameBuffer) - 1);
         nameBuffer[sizeof(nameBuffer) - 1] = '\0';
-        ImGui::OpenPopup("RenameMenu");
+        ImGui::OpenPopup("RenamePopup");
     }
 
-    if (ImGui::BeginPopup("RenameMenu")) {
-        ImGui::Text("Name:");
-
-        if (ImGui::IsWindowAppearing()) {
-            ImGui::SetKeyboardFocusHere();
-        }
-
-        ImGui::PushItemWidth(200);
-        // Added ImGuiInputTextFlags_AutoSelectAll flag
-        if (ImGui::InputText("##ChangeNameInput", nameBuffer, IM_ARRAYSIZE(nameBuffer),
-                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-            ImGui::CloseCurrentPopup();
-                             }
-
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            if (nameBuffer[0] != '\0' && strcmp(nameBuffer, node.name.c_str()) != 0) {
-                if (node.isScene) {
-                    CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new SceneNameCmd(project, node.id, nameBuffer));
-                } else {
-                    CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new EntityNameCmd(project, project->getSelectedSceneId(), node.id, nameBuffer));
-                }
-            }
-        }
-
-        if (ImGui::IsKeyDown(ImGuiKey_Escape)) {
+    if (ImGui::IsPopupOpen("RenamePopup")) {
+        ImGui::SetNextWindowPos(ImVec2(nodeRectMin.x, nodeRectMax.y), ImGuiCond_Appearing);
+    }
+    if (ImGui::BeginPopup("RenamePopup")) {
+        showRenameInput(node, true);
+        // The active input eats the first Escape to revert its text; close on the same press
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
-
         ImGui::EndPopup();
     }
 
@@ -1643,21 +1656,7 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
             ImGui::EndPopup();
         } else {
             // Regular entity/scene context menu
-            ImGui::Text("Name:");
-
-            ImGui::PushItemWidth(200);
-            if (ImGui::InputText("##ChangeNameInput", nameBuffer, IM_ARRAYSIZE(nameBuffer), ImGuiInputTextFlags_EnterReturnsTrue)){
-                ImGui::CloseCurrentPopup();
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (nameBuffer[0] != '\0' && strcmp(nameBuffer, node.name.c_str()) != 0) {
-                    if (node.isScene){
-                        CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new SceneNameCmd(project, node.id, nameBuffer));
-                    }else{
-                        CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new EntityNameCmd(project, project->getSelectedSceneId(), node.id, nameBuffer));
-                    }
-                }
-            }
+            showRenameInput(node, false);
 
             ImGui::Separator();
             bool entityDeleted = false;
@@ -2457,6 +2456,20 @@ void editor::Structure::show(){
     if (revealRequest.entity != NULL_ENTITY) {
         collectRevealPath(root);
         revealRequest = {};
+    }
+
+    // F2 renames the single selected row, or the hovered row when nothing is selected
+    renameRequested = ImGui::IsKeyPressed(ImGuiKey_F2, false) && !ImGui::GetIO().WantTextInput &&
+        (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows));
+    renameTargetEntity = NULL_ENTITY;
+    renameTargetIsScene = false;
+    if (renameRequested) {
+        std::vector<Entity> selected = project->getSelectedEntities(sceneProject->id);
+        if (selected.size() == 1) {
+            renameTargetEntity = selected[0];
+        } else if (selected.empty() && selectedScenes.size() == 1 && selectedScenes[0] == sceneProject->id) {
+            renameTargetIsScene = true;
+        }
     }
 
     showTreeNode(root);

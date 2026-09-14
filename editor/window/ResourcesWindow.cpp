@@ -831,6 +831,7 @@ void editor::ResourcesWindow::renderFileListing(bool showDirectories){
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, cellPadding);
 
     bool clickedInFile = false;
+    hoveredFile.clear();
 
     // --- Start marquee selection on empty click -----------------------------
     if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0) && !ImGui::IsAnyItemHovered()){
@@ -959,6 +960,8 @@ void editor::ResourcesWindow::renderFileListing(bool showDirectories){
 
             ImVec2 itemMin = ImGui::GetItemRectMin();
             ImVec2 itemMax = ImGui::GetItemRectMax();
+
+            if (hovered) hoveredFile = file.name;
 
             const bool doubleClickedItem = hovered && ImGui::IsMouseDoubleClicked(0);
 
@@ -1267,16 +1270,6 @@ void editor::ResourcesWindow::renderFileListing(bool showDirectories){
                 ImGui::OpenPopup("FileContextMenu");
             }
 
-
-            if (ImGui::IsKeyDown(ImGuiKey_F2) && ImGui::IsMouseHoveringRect(itemMin, itemMax, true)){
-                isRenaming = true;
-                renameSelectPending = true;
-                fileBeingRenamed = file.name;
-                strncpy(nameBuffer, file.name.c_str(), sizeof(nameBuffer) - 1);
-                nameBuffer[sizeof(nameBuffer) - 1] = '\0';
-                ImGui::CloseCurrentPopup();
-            }
-
             if (ImGui::BeginPopup("FileContextMenu")){
                 if (file.type == FileType::SCENE){
                     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS " Open (Add)")) {
@@ -1294,12 +1287,8 @@ void editor::ResourcesWindow::renderFileListing(bool showDirectories){
                 ImGui::Separator();
 
                 if (ImGui::MenuItem(ICON_FA_TRASH " Delete")) showDeleteConfirmation = true;
-                if (ImGui::MenuItem(ICON_FA_I_CURSOR " Rename")){
-                    isRenaming = true;
-                    renameSelectPending = true;
-                    fileBeingRenamed = file.name;
-                    strncpy(nameBuffer, file.name.c_str(), sizeof(nameBuffer) - 1);
-                    nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+                if (ImGui::MenuItem(ICON_FA_I_CURSOR " Rename", "F2")){
+                    startRename(file.name);
                     ImGui::CloseCurrentPopup();
                 }
 
@@ -1851,6 +1840,14 @@ void editor::ResourcesWindow::handleNewDirectory(){
     }
 }
 
+void editor::ResourcesWindow::startRename(const std::string& fileName){
+    isRenaming = true;
+    renameSelectPending = true;
+    fileBeingRenamed = fileName;
+    strncpy(nameBuffer, fileName.c_str(), sizeof(nameBuffer) - 1);
+    nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+}
+
 void editor::ResourcesWindow::handleRename(){
     // Handle rename popup
     if (isRenaming) {
@@ -1927,7 +1924,8 @@ void editor::ResourcesWindow::handleRename(){
 
         ImGui::SameLine();
 
-        if (ImGui::IsKeyDown(ImGuiKey_Escape)) {
+        // The active input eats the first Escape to revert its text; close on the same press
+        if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             isRenaming = false;
             ImGui::CloseCurrentPopup();
         }
@@ -2745,6 +2743,15 @@ void editor::ResourcesWindow::show() {
             (ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace))) {
             // Trigger delete confirmation (handled in renderFileListing)
             showDeleteConfirmation = true;
+        }
+        // F2 renames the single selected file, or the hovered one when nothing is selected
+        if (ImGui::IsKeyPressed(ImGuiKey_F2, false) && !ImGui::GetIO().WantTextInput) {
+            std::string target = hoveredFile;
+            if (selectedFiles.size() == 1) {
+                const std::string& selected = *selectedFiles.begin();
+                if (std::any_of(files.begin(), files.end(), [&](const FileEntry& f){ return f.name == selected; })) target = selected;
+            }
+            if (!target.empty()) startRename(target);
         }
         if (ctrlPressed) {
             if (ImGui::IsKeyPressed(ImGuiKey_C)) copySelectedFiles(false);

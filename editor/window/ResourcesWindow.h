@@ -116,6 +116,7 @@ namespace doriax::editor {
 
         std::string lastSelectedFile;
         std::unordered_set<std::string> selectedFiles;
+        std::string hoveredFile;
         std::unordered_set<std::string> projectFiles;  // project-relative scene and built bundle paths
         bool ctrlPressed;
         bool shiftPressed;
@@ -208,6 +209,7 @@ namespace doriax::editor {
         void highlightDragAndDrop();
         void handleInternalDragAndDrop(const fs::path& targetDirectory);
         void handleNewDirectory();
+        void startRename(const std::string& fileName);
         void handleRename();
         void copySelectedFiles(bool cut);
         void pasteFiles(const fs::path& targetDirectory);
