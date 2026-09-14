@@ -49,6 +49,7 @@ namespace doriax::editor{
         struct NodeRef {
             int index = -1;
             std::string name;
+            bool bone = false; // a joint, which the flat skin path keeps apart from a mesh at the same index
         };
         struct LocalPose {
             Vector3 position;
@@ -78,7 +79,7 @@ namespace doriax::editor{
 
         static std::vector<Entity> collectModelDeleteRoots(Scene* scene, const ModelComponent& model);
         static bool isMappedMeshNode(const ModelComponent& model, Entity entity);
-        static NodeRef makeNodeRef(const ModelComponent& model, int nodeIndex);
+        static NodeRef makeNodeRef(const ModelComponent& model, int nodeIndex, bool bone);
         static Entity findModelNode(const ModelComponent& model, const NodeRef& ref);
         static void attachLocal(Scene* scene, Entity child, Entity parent, const LocalPose& pose);
 

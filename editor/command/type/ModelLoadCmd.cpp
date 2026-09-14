@@ -112,9 +112,9 @@ bool editor::ModelLoadCmd::isMappedMeshNode(const ModelComponent& model, Entity 
     return false;
 }
 
-editor::ModelLoadCmd::NodeRef editor::ModelLoadCmd::makeNodeRef(const ModelComponent& model, int nodeIndex) {
+editor::ModelLoadCmd::NodeRef editor::ModelLoadCmd::makeNodeRef(const ModelComponent& model, int nodeIndex, bool bone) {
     // Use the file's name even if the user renamed the entity; unnamed nodes use their index.
-    return {nodeIndex, MeshSystem::getModelNodeName(model, nodeIndex)};
+    return {nodeIndex, MeshSystem::getModelNodeName(model, nodeIndex), bone};
 }
 
 Entity editor::ModelLoadCmd::findModelNode(const ModelComponent& model, const NodeRef& ref) {
@@ -122,21 +122,24 @@ Entity editor::ModelLoadCmd::findModelNode(const ModelComponent& model, const No
         return NULL_ENTITY;
     }
 
-    // A re-export can remove the animation and switch back to flat mesh children.
-    const auto& nodes = model.nodesIdMapping.empty() ? model.meshNodesMapping : model.nodesIdMapping;
+    // The flat path keeps parts and bones in their own maps, and a re-export can switch paths
+    const std::map<int, Entity>* nodes = &model.nodesIdMapping;
+    if (nodes->empty()) {
+        nodes = ref.bone ? &model.bonesIdMapping : &model.meshNodesMapping;
+    }
     // Same index and name first, then the name alone, then the index alone.
-    auto sameIndex = nodes.find(ref.index);
-    if (sameIndex != nodes.end() && MeshSystem::getModelNodeName(model, ref.index) == ref.name) {
+    auto sameIndex = nodes->find(ref.index);
+    if (sameIndex != nodes->end() && MeshSystem::getModelNodeName(model, ref.index) == ref.name) {
         return sameIndex->second;
     }
     if (!ref.name.empty()) {
-        for (const auto& node : nodes) {
+        for (const auto& node : *nodes) {
             if (MeshSystem::getModelNodeName(model, node.first) == ref.name) {
                 return node.second;
             }
         }
     }
-    return sameIndex != nodes.end() ? sameIndex->second : NULL_ENTITY;
+    return sameIndex != nodes->end() ? sameIndex->second : NULL_ENTITY;
 }
 
 // The local is kept: an offset from a bone is the user's placement, the file drives the rest
@@ -152,9 +155,15 @@ void editor::ModelLoadCmd::attachLocal(Scene* scene, Entity child, Entity parent
 void editor::ModelLoadCmd::recordArrangement(SceneProject* sceneProject, const ModelComponent& model) {
     Scene* scene = sceneProject->scene;
 
-    std::unordered_map<Entity, int> modelNodes;
+    std::unordered_map<Entity, NodeRef> modelNodes;
     for (const auto& node : model.nodesIdMapping) {
-        modelNodes.emplace(node.second, node.first);
+        modelNodes.emplace(node.second, makeNodeRef(model, node.first, scene->findComponent<BoneComponent>(node.second) != nullptr));
+    }
+    for (const auto& node : model.meshNodesMapping) {
+        modelNodes.emplace(node.second, makeNodeRef(model, node.first, false));
+    }
+    for (const auto& bone : model.bonesIdMapping) {
+        modelNodes.emplace(bone.second, makeNodeRef(model, bone.first, true));
     }
 
     for (Entity candidate : sceneProject->entities) {
@@ -169,7 +178,7 @@ void editor::ModelLoadCmd::recordArrangement(SceneProject* sceneProject, const M
         ParkedEntity parked;
         parked.entity = candidate;
         parked.oldParent = transform->parent;
-        parked.parent = makeNodeRef(model, parent->second);
+        parked.parent = parent->second;
         parked.pose = {transform->position, transform->rotation, transform->scale};
         parkedEntities.push_back(parked);
     }
@@ -182,10 +191,10 @@ void editor::ModelLoadCmd::recordArrangement(SceneProject* sceneProject, const M
             continue;
         }
         MovedPart moved;
-        moved.part = makeNodeRef(model, node.first);
+        moved.part = makeNodeRef(model, node.first, false);
         auto parent = modelNodes.find(transform->parent);
         if (parent != modelNodes.end()) {
-            moved.nodeParent = makeNodeRef(model, parent->second);
+            moved.nodeParent = parent->second;
         } else {
             moved.userParent = transform->parent;
         }
@@ -430,9 +439,9 @@ bool editor::ModelLoadCmd::execute(){
         }
     }
 
-    // A rebuilt hierarchy gets the user's arrangement back by node name. Only the first run has
-    // the parsed glTF to name the nodes; a redo reuses what it recorded.
-    if (firstExecution && sameModelFile && !model.nodesIdMapping.empty()) {
+    // Rebuilt nodes get the user's arrangement back by node name. Only the first run has the
+    // parsed glTF to name the nodes; a redo reuses what it recorded.
+    if (firstExecution && sameModelFile && !reuseHierarchy) {
         recordArrangement(sceneProject, model);
     }
     parkEntities(sceneProject);

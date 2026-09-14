@@ -467,6 +467,10 @@ bool editor::ProjectUtils::canEditModelBranch(Scene* scene, Entity entity, std::
 
     Entity owner = getModelBranchOwner(scene, entity);
     if (owner == NULL_ENTITY) {
+        Entity model = getParentModel(scene, entity);
+        if (reason && model != NULL_ENTITY && isModelNode(scene->getComponent<ModelComponent>(model), entity)) {
+            *reason = scene->findComponent<BoneComponent>(entity) ? "Joints cannot be reparented" : "Model nodes cannot be reparented";
+        }
         return false;
     }
 
