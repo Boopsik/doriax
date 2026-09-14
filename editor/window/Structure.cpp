@@ -1569,6 +1569,43 @@ void editor::Structure::showTreeNode(editor::TreeNode& node) {
         ImGui::OpenPopup("ContextMenu");
     }
 
+    if (nodeHovered && ImGui::IsKeyDown(ImGuiKey_F2)) {
+        strncpy(nameBuffer, node.name.c_str(), sizeof(nameBuffer) - 1);
+        nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+        ImGui::OpenPopup("RenameMenu");
+    }
+
+    if (ImGui::BeginPopup("RenameMenu")) {
+        ImGui::Text("Name:");
+
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        ImGui::PushItemWidth(200);
+        // Added ImGuiInputTextFlags_AutoSelectAll flag
+        if (ImGui::InputText("##ChangeNameInput", nameBuffer, IM_ARRAYSIZE(nameBuffer),
+                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+            ImGui::CloseCurrentPopup();
+                             }
+
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (nameBuffer[0] != '\0' && strcmp(nameBuffer, node.name.c_str()) != 0) {
+                if (node.isScene) {
+                    CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new SceneNameCmd(project, node.id, nameBuffer));
+                } else {
+                    CommandHandle::get(project->getSelectedSceneId())->addCommandNoMerge(new EntityNameCmd(project, project->getSelectedSceneId(), node.id, nameBuffer));
+                }
+            }
+        }
+
+        if (ImGui::IsKeyDown(ImGuiKey_Escape)) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     if (ImGui::BeginPopup("ContextMenu")) {
         // Child scene context menu
         if (node.isChildScene) {

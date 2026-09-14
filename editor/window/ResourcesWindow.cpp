@@ -1267,6 +1267,16 @@ void editor::ResourcesWindow::renderFileListing(bool showDirectories){
                 ImGui::OpenPopup("FileContextMenu");
             }
 
+
+            if (ImGui::IsKeyDown(ImGuiKey_F2) && ImGui::IsMouseHoveringRect(itemMin, itemMax, true)){
+                isRenaming = true;
+                renameSelectPending = true;
+                fileBeingRenamed = file.name;
+                strncpy(nameBuffer, file.name.c_str(), sizeof(nameBuffer) - 1);
+                nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+
             if (ImGui::BeginPopup("FileContextMenu")){
                 if (file.type == FileType::SCENE){
                     if (ImGui::MenuItem(ICON_FA_FOLDER_PLUS " Open (Add)")) {
@@ -1916,6 +1926,11 @@ void editor::ResourcesWindow::handleRename(){
         }
 
         ImGui::SameLine();
+
+        if (ImGui::IsKeyDown(ImGuiKey_Escape)) {
+            isRenaming = false;
+            ImGui::CloseCurrentPopup();
+        }
 
         if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
             isRenaming = false;
