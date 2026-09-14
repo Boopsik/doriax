@@ -56,9 +56,8 @@ vec3 getSkinPosition(vec3 pos, mat4 boneTransform){
 
 vec3 getSkinNormal(vec3 normal, mat4 boneTransform){
     #ifdef HAS_SKINNING
-        vec4 skinNormal = vec4(normal, 1.0);
-        skinNormal = boneTransform * skinNormal;
-        normal = vec3(skinNormal) / skinNormal.w;
+        // direction: no translation (callers normalize)
+        normal = mat3(boneTransform) * normal;
     #endif
 
     return normal;
@@ -66,9 +65,7 @@ vec3 getSkinNormal(vec3 normal, mat4 boneTransform){
 
 vec3 getSkinTangent(vec3 tangent, mat4 boneTransform){
     #ifdef HAS_SKINNING
-        vec4 skinTangent = vec4(tangent, 1.0);
-        skinTangent = boneTransform * skinTangent;
-        tangent = vec3(skinTangent) / skinTangent.w;
+        tangent = mat3(boneTransform) * tangent;
     #endif
 
     return tangent;

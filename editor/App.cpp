@@ -2336,7 +2336,9 @@ std::filesystem::path editor::App::getUserShaderCacheDir(){
     //      base in the mesh and depth vertex shaders, from the new u_vs_fade block. Terrain
     //      detail layers blend by height, project triplanar on steep ground and break their
     //      tiling with distance, from three new terrain varyings.
-    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v24";
+    // v25: skinned normals and tangents are transformed as directions (mat3), no longer
+    //      as points, so posed bone translations stop flattening the lighting.
+    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v25";
 }
 
 void editor::App::pushTabNotificationStyle(){
