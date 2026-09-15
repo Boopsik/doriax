@@ -809,6 +809,22 @@ void editor::Properties::setOpen(bool open){
 
     windowOpen = false;
     focusRequested = false;
+    nameFocusFrames = 0;
+}
+
+// F2: edit the name of what the window shows — a single entity, or the main scene
+void editor::Properties::focusNameInput(){
+    uint32_t sceneId = project->getSelectedSceneForProperties();
+    if (!project->getScene(sceneId)) sceneId = project->getSelectedSceneId();
+    if (!project->getScene(sceneId)) return;
+
+    const size_t selected = project->getSelectedEntities(sceneId).size();
+    const bool mainScene = (sceneId == project->getSelectedSceneId());
+    if (selected != 1 && !(selected == 0 && mainScene)) return;
+
+    setOpen(true);
+    focusRequested = true;
+    nameFocusFrames = 3; // the field activates a frame after SetKeyboardFocusHere
 }
 
 void editor::Properties::stopTransientPreviews() {
@@ -12937,6 +12953,7 @@ void editor::Properties::show(){
         }
         return;
     }
+    if (nameFocusFrames > 0) nameFocusFrames--;
 
     uint32_t propertiesSceneId = project->getSelectedSceneForProperties();
     SceneProject* sceneProject = project->getScene(propertiesSceneId);
@@ -13015,7 +13032,9 @@ void editor::Properties::show(){
         strncpy(nameBuffer, names.c_str(), sizeof(nameBuffer) - 1);
         nameBuffer[sizeof(nameBuffer) - 1] = '\0';
         ImGui::BeginDisabled(entities.size() != 1);
+        if (nameFocusFrames > 0 && entities.size() == 1) ImGui::SetKeyboardFocusHere();
         ImGui::InputText("##input_name", nameBuffer, IM_ARRAYSIZE(nameBuffer));
+        if (ImGui::IsItemActive()) nameFocusFrames = 0;
         ImGui::EndDisabled();
         if (ImGui::IsItemDeactivatedAfterEdit()) {
             if (entities.size() == 1){
@@ -13329,7 +13348,9 @@ void editor::Properties::show(){
 
         bool isMainScene = (sceneProject->id == project->getSelectedSceneId());
         ImGui::BeginDisabled(!isMainScene);
+        if (nameFocusFrames > 0 && isMainScene) ImGui::SetKeyboardFocusHere();
         ImGui::InputText("##input_scene_name", nameBuffer, IM_ARRAYSIZE(nameBuffer));
+        if (ImGui::IsItemActive()) nameFocusFrames = 0;
         ImGui::EndDisabled();
 
         if (ImGui::IsItemDeactivatedAfterEdit()) {

@@ -98,6 +98,7 @@ namespace doriax::editor{
 
         bool windowOpen;
         bool focusRequested;
+        int nameFocusFrames = 0;   // visible frames left for focusNameInput() to take
         bool finishProperty;
 
         std::set<std::string> usedPreviewIds;
@@ -418,6 +419,7 @@ namespace doriax::editor{
         void stopTransientPreviews();
         void setOpen(bool open);
         bool isOpen() const;
+        void focusNameInput();
     };
 
 }

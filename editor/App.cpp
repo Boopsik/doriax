@@ -1636,6 +1636,8 @@ void editor::App::show(){
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) deleteSelection();
 
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) duplicateSelection();
+
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)) propertiesWindow->focusNameInput();
     }
 
     if (!popupOpen && resourcesWindow->isFocused()) {
