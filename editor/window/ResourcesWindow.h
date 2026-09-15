@@ -54,7 +54,6 @@ namespace doriax::editor {
         TextureRender* icon = nullptr;
         bool hasThumbnail;
         std::string thumbnailPath;
-        std::string filePath;
     };
 
     struct ThumbnailRequest {
@@ -132,7 +131,6 @@ namespace doriax::editor {
         bool isExternalDragHovering;
 
         std::vector<std::string> clipboardFiles;
-        std::string fileBrowserName;
         bool clipboardCut;
 
         char nameBuffer[256];
@@ -196,7 +194,6 @@ namespace doriax::editor {
         uint64_t pendingModelGeneration = 0; // guarded by thumbnailMutex
         std::mutex modelRenderMutex;
 
-        void openFolderInFileManager(const std::string& path);
         ImU32 fileSeparatorColor(const FileEntry& fe) const;
         void refreshProjectFiles();
         bool fileNotInProject(const FileEntry& fe) const;
