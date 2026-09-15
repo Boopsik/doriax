@@ -239,8 +239,12 @@ namespace doriax::editor {
         bool matchBrackets;
         bool autoComplete;
         bool isDragging;
+        bool isMiddleDragging;
         bool isDraggingText;
         bool cursorBlinkOn;
+        bool isBlockSelecting = false;
+        ImVec2 blockSelectStartScreenPos; // Tracks exact screen X/Y of the initial click
+        TextPosition blockSelectStartTextPos; // Tracks the line/column of the initial click
         bool mayDragText;
         std::chrono::steady_clock::time_point lastClickTime;
         TextPosition lastClickPos;
