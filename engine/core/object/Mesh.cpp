@@ -369,6 +369,22 @@ std::string Mesh::getCustomShader() const{
     return mesh.customShader;
 }
 
+void Mesh::setCustomDepthShader(const std::string& path){
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    if (mesh.customDepthShader != path){
+        mesh.customDepthShader = path;
+
+        mesh.needReload = true;
+    }
+}
+
+std::string Mesh::getCustomDepthShader() const{
+    MeshComponent& mesh = getComponent<MeshComponent>();
+
+    return mesh.customDepthShader;
+}
+
 void Mesh::setShaderUniform(const std::string& name, const Vector4& value){
     MeshComponent& mesh = getComponent<MeshComponent>();
 

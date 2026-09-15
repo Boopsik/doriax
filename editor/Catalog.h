@@ -195,6 +195,8 @@ namespace doriax::editor{
         static std::vector<std::string> getShaderUniformWarnings(const std::vector<const CustomUniformBlock*>& blocks);
         // the component's custom shader (own or scene default) failed and the built-in is rendering
         static bool isCustomShaderBuildFailed(Scene* scene, Entity entity, ComponentType component);
+        // same for a mesh's depth fork
+        static bool isCustomDepthShaderBuildFailed(Scene* scene, Entity entity);
 
         template<typename T>
         static T* getPropertyRef(EntityRegistry* registry, Entity entity, ComponentType component, std::string propertyName){

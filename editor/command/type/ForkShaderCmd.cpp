@@ -17,8 +17,10 @@ editor::ForkShaderCmd::ForkShaderCmd(Project* project, uint32_t sceneId, Entity 
     this->plan = ProjectUtils::prepareShaderFork(project, shaderType, targetDirRel, baseName, forkIncludes);
 
     if (plan.valid) {
+        // a mesh keeps its depth fork in a property of its own
+        const char* propertyName = (shaderType == ShaderType::DEPTH) ? "customDepthShader" : "customShader";
         propertyCmd = std::make_unique<PropertyCmd<std::string>>(
-            project, sceneId, entity, cpType, "customShader", plan.base);
+            project, sceneId, entity, cpType, propertyName, plan.base);
     }
 }
 

@@ -453,6 +453,7 @@ void LuaBinding::registerObjectClasses(lua_State *L){
         .addProperty("transparent", &Mesh::isTransparent, &Mesh::setTransparent)
         .addProperty("autoTransparency", &Mesh::isAutoTransparency, &Mesh::setAutoTransparency)
         .addProperty("customShader", &Mesh::getCustomShader, &Mesh::setCustomShader)
+        .addProperty("customDepthShader", &Mesh::getCustomDepthShader, &Mesh::setCustomDepthShader)
         .addFunction("setShaderUniform",
             luabridge::overload<const std::string&, const Vector4&>(&Mesh::setShaderUniform),
             luabridge::overload<const std::string&, const Vector3&>(&Mesh::setShaderUniform),

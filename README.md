@@ -63,7 +63,7 @@ When you want a finished artifact instead, use **Desktop** export to build a rea
 - Build 2D and 3D scenes with sprites, tilemaps, models, cameras, lights, and reusable entities
 - Edit component properties, project resources, animations, bones, and terrain without leaving the editor
 - Write Lua and C++ in the integrated code editor with engine API completion
-- Fork the built-in Mesh, UI, Points, Lines, and Sky shaders, plus custom shaders for ordered post-process passes, with live viewport recompilation and custom uniforms editable in the editor or set from scripts
+- Fork the built-in Mesh (color and depth), UI, Points, Lines, and Sky shaders, plus custom shaders for ordered post-process passes, with live viewport recompilation and custom uniforms editable in the editor or set from scripts
 - Run the game in play mode, inspect build output, and export scenes, assets, scripts, engine files, and compiled shaders
 - Optionally call on the built-in AI assistant to inspect the project, create entities, draft Lua and C++ scripts, and invoke builds, with preview-then-approve, auto-run-read-only, and full-agent modes deciding how much it may do on its own
 

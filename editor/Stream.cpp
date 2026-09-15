@@ -4510,6 +4510,8 @@ YAML::Node editor::Stream::encodeMeshComponent(const MeshComponent& mesh, bool e
 
     if (!mesh.customShader.empty())
         node["customShader"] = mesh.customShader;
+    if (!mesh.customDepthShader.empty())
+        node["customDepthShader"] = mesh.customDepthShader;
     if (!mesh.shaderUniforms.empty())
         node["shaderUniforms"] = encodeShaderUniforms(mesh.shaderUniforms);
 
@@ -4596,6 +4598,7 @@ MeshComponent editor::Stream::decodeMeshComponent(const YAML::Node& node, const 
     if (node["windingOrder"]) mesh.windingOrder = stringToWindingOrder(node["windingOrder"].as<std::string>());
 
     if (node["customShader"]) mesh.customShader = node["customShader"].as<std::string>();
+    if (node["customDepthShader"]) mesh.customDepthShader = node["customDepthShader"].as<std::string>();
     mesh.shaderUniforms = decodeShaderUniforms(node["shaderUniforms"]);
     mesh.needUpdateShaderUniforms = true;
 

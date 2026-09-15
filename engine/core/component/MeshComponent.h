@@ -69,9 +69,10 @@ namespace doriax{
         uint32_t depthShaderProperties = 0;
         uint32_t gbufferShaderProperties = 0;
 
-        // resolved id of MeshComponent::customShader for the main pass (0 = built-in);
+        // resolved ids of MeshComponent::customShader/customDepthShader (0 = built-in);
         // cached here so the matching ShaderPool::remove uses the same key
         uint16_t customShaderId = 0;
+        uint16_t customDepthShaderId = 0;
 
         int slotVSParams = -1;
         int slotFSParams = -1;
@@ -103,9 +104,11 @@ namespace doriax{
         int slotVSGBufferMorphTarget = -1;
         int slotVSGBufferTerrain = -1;
 
-        // custom uniform blocks of a forked shader, filled from MeshComponent::shaderUniforms
+        // custom uniform blocks of the forked shaders, filled from MeshComponent::shaderUniforms
         CustomUniformBlock customVSParams;
         CustomUniformBlock customFSParams;
+        CustomUniformBlock customVSDepthParams;
+        CustomUniformBlock customFSDepthParams;
 
         Rect textureRect = Rect(0.0, 0.0, 1.0, 1.0);
 
@@ -160,8 +163,12 @@ namespace doriax{
         // Optional user-forked shader. Project-relative base path (no extension),
         // e.g. "shaders/myMesh" -> shaders/myMesh.vert + shaders/myMesh.frag.
         // Empty = use the built-in Mesh shader. Drives the main render pass only;
-        // depth/gbuffer passes keep the built-in shaders.
+        // the gbuffer pass keeps the built-in shader.
         std::string customShader;
+        // Same for the depth shader (shadow maps, and the SSAO/post-process depth when SSR
+        // is off; with SSR on those read the built-in gbuffer), so a fork that displaces
+        // vertices or discards keeps its shadows in step.
+        std::string customDepthShader;
         // values of the fork's custom uniform blocks, by member name, shared by all submeshes
         ShaderUniformValues shaderUniforms;
         bool needUpdateShaderUniforms = false;

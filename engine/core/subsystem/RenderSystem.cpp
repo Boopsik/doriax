@@ -92,9 +92,18 @@ namespace {
         applyCustomUniforms(render, fsBlock, frameTime, resolution);
     }
 
-    bool usesAlphaMask(const Material& material, bool textureShadow){
-        return material.alphaMode == MaterialAlphaMode::MASK ||
-            (material.alphaMode == MaterialAlphaMode::AUTO && textureShadow);
+    // the mesh blocks of both forks, from whichever pass draws first (depth runs before color)
+    void writeCustomUniforms(MeshComponent& mesh){
+        if (!mesh.needUpdateShaderUniforms)
+            return;
+
+        for (int i = 0; i < mesh.numSubmeshes; i++){
+            mesh.submeshes[i].customVSParams.writeValues(mesh.shaderUniforms);
+            mesh.submeshes[i].customFSParams.writeValues(mesh.shaderUniforms);
+            mesh.submeshes[i].customVSDepthParams.writeValues(mesh.shaderUniforms);
+            mesh.submeshes[i].customFSDepthParams.writeValues(mesh.shaderUniforms);
+        }
+        mesh.needUpdateShaderUniforms = false;
     }
 
     bool usesAlphaBlend(const Material& material){
@@ -2607,15 +2616,39 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
         mesh.submeshes[i].customShaderId = ShaderPool::registerCustomShader(meshShaderSrc);
         mesh.submeshes[i].shader = ShaderPool::get(ShaderType::MESH, mesh.submeshes[i].shaderProperties, mesh.submeshes[i].customShaderId);
         // the depth shader feeds shadow maps (casters) and the SSAO depth pre-pass
-        // (SSR uses its own G-buffer shader, built below)
-        if ((hasShadows && mesh.castShadows) || scene->isSSAOEnabled()){
+        // (SSR uses its own G-buffer shader, built below). A depth fork is built even
+        // without a pass, so its uniforms and build errors show up in the editor.
+        bool needDepthPass = (hasShadows && mesh.castShadows) || scene->isSSAOEnabled();
+        if (needDepthPass || !mesh.customDepthShader.empty()){
             mesh.submeshes[i].depthShaderProperties = ShaderPool::getDepthMeshProperties(
                 p_depthTexture, mesh.submeshes[i].hasSkinning, mesh.submeshes[i].hasMorphTarget,
                 mesh.submeshes[i].hasMorphNormal, mesh.submeshes[i].hasMorphTangent, (terrain)?true:false, (instmesh)?true:false,
                 p_depthAlphaMask, p_instanceFade);
-            mesh.submeshes[i].depthShader = ShaderPool::get(ShaderType::DEPTH, mesh.submeshes[i].depthShaderProperties);
-            if (!mesh.submeshes[i].depthShader->isCreated())
-                return false;
+            mesh.submeshes[i].customDepthShaderId = ShaderPool::registerCustomShader(mesh.customDepthShader);
+            mesh.submeshes[i].depthShader = ShaderPool::get(ShaderType::DEPTH, mesh.submeshes[i].depthShaderProperties, mesh.submeshes[i].customDepthShaderId);
+            if (!mesh.submeshes[i].depthShader->isCreated()){
+                // same fallback as the main shader below
+                if (mesh.submeshes[i].customDepthShaderId != 0 &&
+                    ShaderPool::isShaderBuildFailed(ShaderType::DEPTH, mesh.submeshes[i].depthShaderProperties, mesh.submeshes[i].customDepthShaderId)){
+                    Log::error("Custom depth shader '%s' failed to compile; rendering '%s' with the built-in shader",
+                               mesh.customDepthShader.c_str(), scene->getEntityName(entity).c_str());
+                    mesh.submeshes[i].customDepthShaderId = 0;
+                    mesh.submeshes[i].depthShader = ShaderPool::get(ShaderType::DEPTH, mesh.submeshes[i].depthShaderProperties, 0);
+                }
+                if (!mesh.submeshes[i].depthShader->isCreated())
+                    return false;
+            }
+            // custom blocks of a forked depth shader, sharing the mesh values
+            ShaderData& depthShaderData = mesh.submeshes[i].depthShader.get()->shaderData;
+            mesh.submeshes[i].customVSDepthParams.resolve(depthShaderData, "u_vs_customParams");
+            mesh.submeshes[i].customFSDepthParams.resolve(depthShaderData, "u_fs_customParams");
+            mesh.submeshes[i].customVSDepthParams.writeValues(mesh.shaderUniforms);
+            mesh.submeshes[i].customFSDepthParams.writeValues(mesh.shaderUniforms);
+        }else if (mesh.submeshes[i].depthShader){
+            // a reload keeps the handle; release it with the key it was taken with
+            mesh.submeshes[i].depthShader.reset();
+            ShaderPool::remove(ShaderType::DEPTH, mesh.submeshes[i].depthShaderProperties, mesh.submeshes[i].customDepthShaderId);
+            mesh.submeshes[i].customDepthShaderId = 0;
         }
         // the G-buffer shader feeds the SSR geometry pass (MRT: packed depth + view-space
         // normal/roughness/metallic). Built only when SSR is enabled (it needs normals).
@@ -2797,7 +2830,7 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
         }
 
         //----------Start depth shader---------------
-        if ((hasShadows && mesh.castShadows) || scene->isSSAOEnabled()){
+        if (needDepthPass){
             ObjectRender& depthRender = mesh.submeshes[i].depthRender;
 
             depthRender.beginLoad(mesh.submeshes[i].primitiveType);
@@ -3133,14 +3166,7 @@ bool RenderSystem::drawMesh(MeshComponent& mesh, Transform& transform, CameraCom
         }
 
         updateMeshBuffers(mesh);
-
-        if (mesh.needUpdateShaderUniforms){
-            for (int i = 0; i < mesh.numSubmeshes; i++){
-                mesh.submeshes[i].customVSParams.writeValues(mesh.shaderUniforms);
-                mesh.submeshes[i].customFSParams.writeValues(mesh.shaderUniforms);
-            }
-            mesh.needUpdateShaderUniforms = false;
-        }
+        writeCustomUniforms(mesh);
 
         // Buffer already uploaded this frame by updateInstanceBuffers().
         unsigned int instanceCount = 1;
@@ -3323,6 +3349,7 @@ bool RenderSystem::drawMeshDepth(MeshComponent& mesh, const float cameraFar, con
         }
 
         updateMeshBuffers(mesh);
+        writeCustomUniforms(mesh);
 
         // the depth pass renders the main camera's selection (view 0)
         if (terrain){
@@ -3366,6 +3393,9 @@ bool RenderSystem::drawMeshDepth(MeshComponent& mesh, const float cameraFar, con
 
             //model, mvp matrix
             depthRender.applyUniformBlock(mesh.submeshes[i].slotVSDepthParams, sizeof(float) * 32, &vsDepthParams);
+
+            applyCustomUniforms(depthRender, mesh.submeshes[i].customVSDepthParams, frameTime, passResolution);
+            applyCustomUniforms(depthRender, mesh.submeshes[i].customFSDepthParams, frameTime, passResolution);
 
             if (mesh.submeshes[i].slotVSDepthFade != -1 && instmesh){
                 applyInstanceFadeUniform(depthRender, mesh.submeshes[i].slotVSDepthFade, *instmesh);
@@ -3611,6 +3641,7 @@ void RenderSystem::renderDepthPrePass(CameraComponent& camera){
 
     ssaoPassRender.setClearColor(Vector4(1.0, 1.0, 1.0, 1.0)); // background -> depth ~1.0
     ssaoPassRender.startRenderPass(&ssaoDepthFramebuffer.getRender());
+    passResolution = Vector2((float)ssaoWidth, (float)ssaoHeight);
 
     auto transforms = scene->getComponentArray<Transform>();
     for (int i = 0; i < transforms->size(); i++){
@@ -4352,7 +4383,7 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
             // depth shader may have been loaded for shadows and/or SSAO
             if (submesh.depthShader){
                 submesh.depthShader.reset();
-                ShaderPool::remove(ShaderType::DEPTH, submesh.depthShaderProperties);
+                ShaderPool::remove(ShaderType::DEPTH, submesh.depthShaderProperties, submesh.customDepthShaderId);
             }
             // G-buffer shader may have been loaded for SSR
             if (submesh.gbufferShader){
@@ -4432,6 +4463,8 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
 
         submesh.customVSParams.clear();
         submesh.customFSParams.clear();
+        submesh.customVSDepthParams.clear();
+        submesh.customFSDepthParams.clear();
     }
 
     //Destroy buffer
@@ -6304,6 +6337,11 @@ void RenderSystem::changeDestroy(void* data){
     delete (check_load_t*)data;
 }
 
+bool RenderSystem::usesAlphaMask(const Material& material, bool textureShadow){
+    return material.alphaMode == MaterialAlphaMode::MASK ||
+        (material.alphaMode == MaterialAlphaMode::AUTO && textureShadow);
+}
+
 // a texture cannot be sampled in the pass that renders into it; objects showing a
 // camera's framebuffer must be skipped when drawing that same camera
 bool RenderSystem::samplesCameraTarget(const CameraComponent& camera, const MeshComponent& mesh){
@@ -7188,6 +7226,7 @@ void RenderSystem::draw(){
                 Rect slotRect = getShadowAtlasSlotRect(slotIndex);
                 shadowAtlasPassRender.applyViewport(slotRect);
                 shadowAtlasPassRender.applyScissor(slotRect);
+                passResolution = Vector2(slotRect.getWidth(), slotRect.getHeight());
                 drawShadowCasters(light, c, PIP_SHADOW_DEPTH);
             }
         }
@@ -7223,6 +7262,7 @@ void RenderSystem::draw(){
                 shadowPointAtlasPassRender.applyScissor(slotRect);
                 pointAtlasSlotWritten = true;
 
+                passResolution = Vector2(slotRect.getWidth(), slotRect.getHeight());
                 drawShadowCasters(light, c, PIP_DEPTH);
                 shadowPointAtlasPassRender.endRenderPass();
             }

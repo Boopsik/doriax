@@ -585,6 +585,7 @@ namespace {
         makeFastProperty<MeshComponent, bool, &MeshComponent::transparent>("transparent", PropertyType::Bool, UpdateFlags_Mesh_Reload),
         makeFastProperty<MeshComponent, bool, &MeshComponent::autoTransparency>("autoTransparency", PropertyType::Bool, UpdateFlags_Mesh_Reload),
         makeFastProperty<MeshComponent, std::string, &MeshComponent::customShader>("customShader", PropertyType::String, UpdateFlags_Shader_Reload),
+        makeFastProperty<MeshComponent, std::string, &MeshComponent::customDepthShader>("customDepthShader", PropertyType::String, UpdateFlags_Shader_Reload),
         makeFastProperty<MeshComponent, ShaderUniformValues, &MeshComponent::shaderUniforms>("shaderUniforms", PropertyType::Custom, UpdateFlags_Shader_Uniforms),
         makeFastProperty<MeshComponent, unsigned int, &MeshComponent::numSubmeshes>("numSubmeshes", PropertyType::UInt, UpdateFlags_None),
     };
@@ -3768,6 +3769,10 @@ std::vector<const CustomUniformBlock*> editor::Catalog::getShaderUniformBlocks(E
                     blocks.push_back(&mesh->submeshes[i].customVSParams);
                 for (unsigned int i = 0; i < mesh->numSubmeshes; i++)
                     blocks.push_back(&mesh->submeshes[i].customFSParams);
+                for (unsigned int i = 0; i < mesh->numSubmeshes; i++)
+                    blocks.push_back(&mesh->submeshes[i].customVSDepthParams);
+                for (unsigned int i = 0; i < mesh->numSubmeshes; i++)
+                    blocks.push_back(&mesh->submeshes[i].customFSDepthParams);
             }
             break;
         case ComponentType::UIComponent:
@@ -3812,7 +3817,7 @@ std::vector<std::string> editor::Catalog::getShaderUniformWarnings(const std::ve
             for (size_t other = 0; other < b; other++) {
                 for (const ShaderUniform& existing : blocks[other]->members) {
                     if (existing.name == uniform.name && existing.type != uniform.type) {
-                        warnings.push_back("'" + uniform.name + "' has different types in the vertex and fragment blocks; one value feeds both.");
+                        warnings.push_back("'" + uniform.name + "' has different types in two blocks; one value feeds both.");
                     }
                 }
             }
@@ -3857,6 +3862,13 @@ bool editor::Catalog::isCustomShaderBuildFailed(Scene* scene, Entity entity, Com
     }
 
     return false;
+}
+
+bool editor::Catalog::isCustomDepthShaderBuildFailed(Scene* scene, Entity entity) {
+    // the depth fork has no scene default; loadMesh always builds it when set
+    MeshComponent* mesh = scene->findComponent<MeshComponent>(entity);
+    return mesh && !mesh->customDepthShader.empty() && mesh->loaded && !mesh->needReload &&
+           mesh->numSubmeshes > 0 && mesh->submeshes[0].customDepthShaderId == 0;
 }
 
 void editor::Catalog::updateEntity(EntityRegistry* registry, Entity entity, uint64_t updateFlags){

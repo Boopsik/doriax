@@ -1,5 +1,16 @@
 #version 450
 
+// A fork may declare a u_fs_customParams block: its members are filled by name from the
+// mesh's shader uniforms, the same values the color fork reads. Two names are written by
+// the engine instead: "time" (seconds since startup) and "resolution" (xy = shadow slot
+// or depth target size, zw = 1 / size). Do not mix int and float members: GL uploads the
+// block typed after its first member.
+//
+//   uniform u_fs_customParams {
+//       float time;
+//       float dissolve;
+//   } customParams;
+
 out vec4 frag_color;
 in vec2 v_projZW;
 

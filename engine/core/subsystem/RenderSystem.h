@@ -357,7 +357,7 @@ namespace doriax{
 		TextureRender* currentSSAOTexture; // AO bound to meshes this camera (or empty white)
 
 		// engine-written custom uniforms: seconds since startup, sampled once per draw(),
-		// and the size of the color target of the camera pass being drawn
+		// and the size of the target being drawn (shadow slot, SSAO depth or camera color)
 		float frameTime;
 		Vector2 passResolution;
 
@@ -592,6 +592,10 @@ namespace doriax{
 		// editor always renders through Engine::getFramebuffer(), so PIP_RTT is
 		// already baked either way.
 		void setDisableFixedResolution(bool disableFixedResolution);
+
+		// the depth pass alpha-tests the submesh (MASK, or the legacy AUTO + textureShadow);
+		// the editor derives export keys from it, so the rule lives in one place
+		static bool usesAlphaMask(const Material& material, bool textureShadow);
 
 		// copies the stacked scene composite to the swapchain (Engine::endCompositeFramebuffer)
 		void presentFramebufferToSwapchain(Framebuffer* source);

@@ -4194,7 +4194,7 @@ bool EditorActionExecutor::validateCustomShaderValue(const std::string& property
     // Every shader-path property (per-component customShader, or a scene's per-type
     // default) is a project-relative base path; both must reference real files.
     static const std::set<std::string> shaderPathProperties = {
-        "customShader", "default_mesh_shader", "default_ui_shader",
+        "customShader", "customDepthShader", "default_mesh_shader", "default_ui_shader",
         "default_sky_shader", "default_points_shader", "default_lines_shader"
     };
     if (!shaderPathProperties.count(propertyName)) {
@@ -4286,15 +4286,24 @@ ActionResult EditorActionExecutor::forkShader(const Json& arguments) {
     std::string error;
     if (!resolveShaderComponent(sceneProject, arguments, entity, component, shaderType, error)) return failResult(error);
 
+    // a mesh's shadow/SSAO depth pass has its own fork
+    std::string propertyName = "customShader";
+    if (lower(shaderTypeArg) == "depth") {
+        if (component != ComponentType::MeshComponent) return failResult("Only a MeshComponent has a depth shader.");
+        shaderType = ShaderType::DEPTH;
+        propertyName = "customDepthShader";
+    }
+
     // Re-forking would orphan the previous fork's files; require an explicit reset first.
-    if (std::string* current = Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, component, "customShader")) {
+    if (std::string* current = Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, component, propertyName)) {
         if (!current->empty()) {
             return failResult("Component already uses a custom shader (" + *current +
-                              "). Edit it with write_shader_file, or clear customShader to reset before forking again.");
+                              "). Edit it with write_shader_file, or clear " + propertyName + " to reset before forking again.");
         }
     }
 
-    const std::string desiredName = sceneProject->scene->getEntityName(entity);
+    std::string desiredName = sceneProject->scene->getEntityName(entity);
+    if (shaderType == ShaderType::DEPTH) desiredName += "_depth";
     const std::string forkName = ProjectUtils::makeUniqueShaderName(
         project->getProjectPath() / targetDirectory, shaderType, desiredName);
     auto* forkCmd = new ForkShaderCmd(project, sceneId, entity, component, shaderType,
@@ -4321,6 +4330,7 @@ ActionResult EditorActionExecutor::forkShader(const Json& arguments) {
 
     return okResult("Forked shader through the command history.",
                     Json{{"custom_shader", base},
+                         {"property", propertyName},
                          {"vert_path", base + ".vert"},
                          {"frag_path", base + ".frag"}});
 }
@@ -4483,16 +4493,22 @@ ActionResult EditorActionExecutor::inspectShaderUniforms(const Json& arguments) 
     Json warnings;
     collectComponentShaderUniformMembers(members, warnings, sceneProject->scene, entity, component, *valuesRef);
 
-    return okResult("Inspected shader uniforms.",
-                    Json{{"scene_id", sceneId},
-                         {"entity_id", entity},
-                         {"component", Catalog::getComponentName(component)},
-                         {"custom_shader", *customShader},
-                         {"effective_shader", effectiveShader},
-                         {"build_failed", Catalog::isCustomShaderBuildFailed(sceneProject->scene, entity, component)},
-                         {"members", members},
-                         {"warnings", warnings},
-                         {"values", shaderUniformValuesJson(*valuesRef)}});
+    Json result{{"scene_id", sceneId},
+                {"entity_id", entity},
+                {"component", Catalog::getComponentName(component)},
+                {"custom_shader", *customShader},
+                {"effective_shader", effectiveShader},
+                {"build_failed", Catalog::isCustomShaderBuildFailed(sceneProject->scene, entity, component)},
+                {"members", members},
+                {"warnings", warnings},
+                {"values", shaderUniformValuesJson(*valuesRef)}};
+    // a mesh's depth fork declares blocks of its own, listed in the same members
+    if (std::string* customDepthShader = Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, component, "customDepthShader")) {
+        result["custom_depth_shader"] = *customDepthShader;
+        result["depth_build_failed"] = Catalog::isCustomDepthShaderBuildFailed(sceneProject->scene, entity);
+    }
+
+    return okResult("Inspected shader uniforms.", result);
 }
 
 ActionResult EditorActionExecutor::setShaderUniform(const Json& arguments) {

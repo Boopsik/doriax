@@ -6,6 +6,9 @@
 // (xy = render target size, zw = 1 / size). Do not mix int and float members: GL
 // uploads the block typed after its first member.
 //
+// The fork drives the color pass only: to keep shadows (and SSAO, when SSR is off) in
+// step with positions displaced here, fork the depth shader too (Depth Shader in Properties).
+//
 //   uniform u_vs_customParams {
 //       float time;
 //       vec4 tint;

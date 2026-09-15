@@ -5016,22 +5016,53 @@ void editor::Properties::drawCustomShaderRow(ComponentType cpType, ShaderType sh
         return;
 
     Entity shaderEntity = entities[0];
-    std::string* shaderRef = Catalog::getPropertyRef<std::string>(sceneProject->scene, shaderEntity, cpType, "customShader");
-    if (!shaderRef)
+    if (!Catalog::getPropertyRef<std::string>(sceneProject->scene, shaderEntity, cpType, "customShader"))
         return;
-    const std::string currentShader = *shaderRef;
+
+    // the uniform rows share the table, so the label column fits their names
+    ShaderUniformRows uniformRows = resolveShaderUniformRows(cpType, sceneProject, shaderEntity);
+    float labelSize = getLabelSize(cpType == ComponentType::MeshComponent ? "Depth Shader" : "Shader", false);
+    for (const ShaderUniform& uniform : uniformRows.members)
+        labelSize = std::max(labelSize, getLabelSize(uniform.name, false));
+
+    beginTable(cpType, labelSize, "custom_shader_table");
+    propertyHeader("Shader");
+    drawComponentShaderRow(cpType, shaderType, sceneProject, shaderEntity, "customShader", "custom_shader");
+
+    // shadow maps and the depth pre-pass have their own fork, so a mesh fork that displaces
+    // vertices or discards can keep its shadows in step
+    if (cpType == ComponentType::MeshComponent) {
+        propertyHeader("Depth Shader");
+        drawComponentShaderRow(cpType, ShaderType::DEPTH, sceneProject, shaderEntity, "customDepthShader", "custom_depth_shader");
+        ImGui::SameLine(); helpMarker("Shader of the shadow maps, and of the depth pre-pass that feeds SSAO and post-process depth while SSR is off (with SSR on they read the G-buffer, which keeps the built-in shader). Fork it when the mesh shader moves vertices or discards fragments, so shadows follow.");
+        if (Catalog::isCustomDepthShaderBuildFailed(sceneProject->scene, shaderEntity)) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextDisabled("Depth shader failed to build");
+        }
+    }
+
+    drawShaderUniformRows(cpType, sceneProject, shaderEntity, uniformRows);
+
+    endTable();
+}
+
+void editor::Properties::drawComponentShaderRow(ComponentType cpType, ShaderType shaderType, SceneProject* sceneProject, Entity entity, const char* propertyName, const std::string& idSuffix){
+    const std::string currentShader = *Catalog::getPropertyRef<std::string>(sceneProject->scene, entity, cpType, propertyName);
 
     auto setShader = [&](const std::string& value) {
-        Command* shaderCmd = new PropertyCmd<std::string>(project, sceneProject->id, shaderEntity, cpType, "customShader", value);
+        Command* shaderCmd = new PropertyCmd<std::string>(project, sceneProject->id, entity, cpType, propertyName, value);
         CommandHandle::get(sceneProject->id)->addCommand(shaderCmd);
     };
     const uint32_t sceneId = sceneProject->id;
-    const std::string defaultName = sceneProject->scene->getEntityName(shaderEntity);
-    auto onFork = [this, sceneId, shaderEntity, cpType, shaderType, defaultName]() {
+    std::string defaultName = sceneProject->scene->getEntityName(entity);
+    if (shaderType == ShaderType::DEPTH)
+        defaultName += "_depth";
+    auto onFork = [this, sceneId, entity, cpType, shaderType, propertyName, defaultName]() {
         shaderForkDialog.open(project, shaderType, defaultName,
-            [this, sceneId, shaderEntity, cpType, shaderType](const std::filesystem::path& directory,
-                                                             const std::string& name,
-                                                             bool forkIncludes) {
+            [this, sceneId, entity, cpType, shaderType, propertyName](const std::filesystem::path& directory,
+                                                                     const std::string& name,
+                                                                     bool forkIncludes) {
                 // The dialog answers frames later, so the scene is resolved again here.
                 SceneProject* currentScene = project->getScene(sceneId);
                 if (!currentScene || !currentScene->scene) {
@@ -5039,30 +5070,17 @@ void editor::Properties::drawCustomShaderRow(ComponentType cpType, ShaderType sh
                     return;
                 }
                 std::string* current = Catalog::getPropertyRef<std::string>(
-                    currentScene->scene, shaderEntity, cpType, "customShader");
+                    currentScene->scene, entity, cpType, propertyName);
                 if (!current || !current->empty()) {
                     Backend::getApp().registerAlert("Error", "The component no longer uses the built-in shader.");
                     return;
                 }
                 commitShaderFork(sceneId, std::make_unique<ForkShaderCmd>(
-                    project, sceneId, shaderEntity, cpType, shaderType, directory, name, forkIncludes));
+                    project, sceneId, entity, cpType, shaderType, directory, name, forkIncludes));
             });
     };
 
-    // the uniform rows share the table, so the label column fits their names
-    ShaderUniformRows uniformRows = resolveShaderUniformRows(cpType, sceneProject, shaderEntity);
-    float labelSize = getLabelSize("Shader", false);
-    for (const ShaderUniform& uniform : uniformRows.members)
-        labelSize = std::max(labelSize, getLabelSize(uniform.name, false));
-
-    beginTable(cpType, labelSize, "custom_shader_table");
-    propertyHeader("Shader");
-
-    drawShaderRowContents(shaderType, currentShader, setShader, onFork, "custom_shader");
-
-    drawShaderUniformRows(cpType, sceneProject, shaderEntity, uniformRows);
-
-    endTable();
+    drawShaderRowContents(shaderType, currentShader, setShader, onFork, idSuffix);
 }
 
 editor::Properties::ShaderUniformRows editor::Properties::resolveShaderUniformRows(ComponentType cpType, SceneProject* sceneProject, Entity entity){
@@ -5165,8 +5183,8 @@ void editor::Properties::drawShaderUniformRows(ComponentType cpType, SceneProjec
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(1);
         // a failed fork keeps rendering, the runtime falls back to the built-in
+        // (members left are the depth fork's, when a mesh has one)
         ImGui::TextDisabled("Shader failed to build");
-        return;
     }
 
     if (rows.members.empty())

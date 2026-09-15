@@ -14,10 +14,10 @@
 
 namespace doriax::editor {
 
-    // Forks a built-in shader and points a component's customShader (or a scene's default
-    // shader property) at the new fork as a single undoable step: execute() writes the
-    // .vert/.frag (and optional private include) files and sets the property; undo()
-    // restores the property and deletes the forked files.
+    // Forks a built-in shader and points a component's customShader (customDepthShader
+    // for a DEPTH fork, or a scene's default shader property) at the new fork as a single
+    // undoable step: execute() writes the .vert/.frag (and optional private include) files
+    // and sets the property; undo() restores the property and deletes the forked files.
     class ForkShaderCmd : public Command {
     private:
         Project* project;

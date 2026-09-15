@@ -24,6 +24,7 @@ int ShaderForkDialog::shaderNameCharFilter(ImGuiInputTextCallbackData* data) {
 const char* ShaderForkDialog::shaderTypeName(ShaderType shaderType) {
     switch (shaderType) {
         case ShaderType::MESH:   return "Mesh";
+        case ShaderType::DEPTH:  return "Depth";
         case ShaderType::UI:     return "UI";
         case ShaderType::POINTS: return "Points";
         case ShaderType::LINES:  return "Lines";

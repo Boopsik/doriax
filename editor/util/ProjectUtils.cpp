@@ -136,6 +136,7 @@ namespace {
 std::string shaderTypeFileName(ShaderType shaderType) {
     switch (shaderType) {
         case ShaderType::MESH:   return "mesh";
+        case ShaderType::DEPTH:  return "depth";
         case ShaderType::UI:     return "ui";
         case ShaderType::POINTS: return "points";
         case ShaderType::LINES:  return "lines";

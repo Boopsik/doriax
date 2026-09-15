@@ -802,6 +802,8 @@ std::string editor::Factory::createMeshComponent(int indentSpaces, EntityRegistr
     code << ind << "mesh.renderInReflectionProbes = " << formatBool(mesh.renderInReflectionProbes) << ";\n";
     if (!mesh.customShader.empty())
         code << ind << "mesh.customShader = " << formatString(mesh.customShader) << ";\n";
+    if (!mesh.customDepthShader.empty())
+        code << ind << "mesh.customDepthShader = " << formatString(mesh.customDepthShader) << ";\n";
     if (!mesh.shaderUniforms.empty())
         code << ind << "mesh.shaderUniforms = " << formatShaderUniforms(mesh.shaderUniforms) << ";\n";
     code << ind << "mesh.vertexCount = " << formatUInt(mesh.vertexCount) << ";\n";

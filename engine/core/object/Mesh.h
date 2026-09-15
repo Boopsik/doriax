@@ -92,6 +92,9 @@ namespace doriax{
         void setCustomShader(const std::string& path);
         std::string getCustomShader() const;
 
+        void setCustomDepthShader(const std::string& path);
+        std::string getCustomDepthShader() const;
+
         void setShaderUniform(const std::string& name, const Vector4& value);
         void setShaderUniform(const std::string& name, const Vector3& value);
         void setShaderUniform(const std::string& name, const Vector2& value);
