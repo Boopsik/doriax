@@ -242,9 +242,8 @@ namespace doriax::editor {
         bool isMiddleDragging;
         bool isDraggingText;
         bool cursorBlinkOn;
-        bool isBlockSelecting = false;
-        ImVec2 blockSelectStartScreenPos; // Tracks exact screen X/Y of the initial click
-        TextPosition blockSelectStartTextPos; // Tracks the line/column of the initial click
+        int middleDragLine;
+        float middleDragX;
         bool mayDragText;
         std::chrono::steady_clock::time_point lastClickTime;
         TextPosition lastClickPos;
@@ -386,6 +385,7 @@ namespace doriax::editor {
         void renderContextMenu();
 
         void placeCursorAtClick(const TextPosition& clickPos);
+        void columnSelect(const ImVec2& mousePos, const ImVec2& contentPos);
 
         char getCharAt(const TextPosition& pos) const;
         char findMatchingBracket(const TextPosition& pos, TextPosition& matchPos) const;

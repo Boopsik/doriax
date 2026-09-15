@@ -85,9 +85,11 @@ CustomTextEditor::CustomTextEditor()
     , matchBrackets(true)
     , autoComplete(true)
     , isDragging(false)
-    , isDraggingText(false)
     , isMiddleDragging(false)
+    , isDraggingText(false)
     , cursorBlinkOn(false)
+    , middleDragLine(0)
+    , middleDragX(0.0f)
     , mayDragText(false)
     , clickCount(0)
     , scrollX(0)
@@ -3275,58 +3277,20 @@ void CustomTextEditor::handleMouseInput() {
         }
     }
 
-    // 1. Handle the initial middle-click press
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
-        isBlockSelecting = true;
+        ImGui::SetWindowFocus(); // ImGui only focuses on left click
         isMiddleDragging = true;
-        blockSelectStartScreenPos = mousePos;
-        blockSelectStartTextPos = screenToText(mousePos, contentPos);
-
-        ClearSelection();
-        cursors.clear();
+        middleDragLine = screenToText(mousePos, contentPos).line;
+        middleDragX = mousePos.x - contentPos.x - textStartX;
+        CloseAutoComplete();
     }
 
-    // 2. Handle the drag state to build the multi-cursors
-    if (isBlockSelecting && ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-        TextPosition currentDragPos = screenToText(mousePos, contentPos);
-
-        // Clear cursors so we can rebuild them cleanly for this frame
-        cursors.clear();
-
-        // Determine top and bottom lines of the selection box
-        int startLine = std::min(blockSelectStartTextPos.line, currentDragPos.line);
-        int endLine   = std::max(blockSelectStartTextPos.line, currentDragPos.line);
-
-        for (int l = startLine; l <= endLine; ++l) {
-            int lineLen = static_cast<int>(lines[l].size());
-
-            // Calculate the screen Y coordinate for this specific line
-            float lineY = contentPos.y + (l * lineHeight);
-
-            // Calculate the text positions for the left and right sides of the box on this line
-            TextPosition boxStart = screenToText({blockSelectStartScreenPos.x, lineY}, contentPos);
-            TextPosition boxEnd   = screenToText({mousePos.x, lineY}, contentPos);
-
-            // Determine the left-most column of the box on this line
-            int boxLeftCol = std::min(boxStart.column, boxEnd.column);
-
-            // Filter out short lines: skip if the line ends before the selection box starts
-            if (boxLeftCol >= lineLen) {
-                continue;
-            }
-
-            Cursor cursor;
-            cursor.position = boxEnd; // The blinking cursor stays at the mouse's current X edge
-
-            // If the box has width, create a selection range
-            if (boxStart != boxEnd) {
-                cursor.selection = Selection{boxStart, boxEnd};
-            }
-
-            cursors.push_back(cursor);
+    if (isMiddleDragging) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+            columnSelect(mousePos, contentPos);
+        } else {
+            isMiddleDragging = false;
         }
-    }else {
-        isMiddleDragging = false;
     }
 
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
@@ -3567,7 +3531,7 @@ void CustomTextEditor::renderCursors(ImDrawList* drawList, const ImVec2& origin)
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) return;
 
     float time = ImGui::GetTime();
-    bool showCursor = (isDraggingText || isMiddleDragging) || (fmod(time, 1.0f) < 0.5f);
+    bool showCursor = isDraggingText || isMiddleDragging || (fmod(time, 1.0f) < 0.5f);
 
     // The loop idles without input, so the blink has to ask for its frames
     if (showCursor != cursorBlinkOn) {
@@ -3917,6 +3881,29 @@ void CustomTextEditor::renderFindDialog(const ImVec2& editorPos, const ImVec2& e
     ImGui::PopStyleVar(2);
 }
 
+// One cursor per line of the box from the middle-drag anchor to the mouse
+void CustomTextEditor::columnSelect(const ImVec2& mousePos, const ImVec2& contentPos) {
+    float toX = mousePos.x - contentPos.x - textStartX;
+    int toLine = screenToText(mousePos, contentPos).line;
+    int firstLine = std::min(middleDragLine, toLine);
+    int lastLine = std::min(std::max(middleDragLine, toLine), static_cast<int>(lines.size()) - 1);
+
+    cursors.clear();
+    for (int line = firstLine; line <= lastLine; ++line) {
+        if (byteOffsetToPixelX(line, static_cast<int>(lines[line].size())) < std::min(middleDragX, toX)) continue;
+
+        Cursor cursor;
+        cursor.selection.start = TextPosition(line, pixelXToByteOffset(line, middleDragX));
+        cursor.selection.end = TextPosition(line, pixelXToByteOffset(line, toX));
+        cursor.position = cursor.selection.end;
+        cursors.push_back(cursor);
+    }
+
+    if (cursors.empty()) AddCursor(toLine, pixelXToByteOffset(toLine, toX));
+
+    primaryCursor = toLine < middleDragLine ? 0 : static_cast<int>(cursors.size()) - 1;
+}
+
 void CustomTextEditor::placeCursorAtClick(const TextPosition& clickPos) {
     for (const auto& cursor : cursors) {
         if (!cursor.selection.isEmpty()) {
@@ -4083,7 +4070,7 @@ void CustomTextEditor::Render(const char* title, const ImVec2& size, bool border
             handleKeyboardInput();
             handleTextInput();
         }
-        if ((isHovered || isDragging || isDraggingText) && !suggestionsHovered) {
+        if ((isHovered || isDragging || isDraggingText || isMiddleDragging) && !suggestionsHovered) {
             handleMouseInput();
         }
 
