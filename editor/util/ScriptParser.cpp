@@ -397,8 +397,9 @@ std::vector<ScriptProperty> editor::ScriptParser::parseScriptPropertiesFromStrin
         }
         cppType = cleanCppType;
 
-        // Remove whitespace from default value if present
-        if (!defaultValueStr.empty()) {
+        // Remove whitespace from default value if present, unless it is a string literal
+        const bool stringLiteral = defaultValueStr.size() >= 2 && defaultValueStr.front() == '"' && defaultValueStr.back() == '"';
+        if (!defaultValueStr.empty() && !stringLiteral) {
             defaultValueStr.erase(std::remove_if(defaultValueStr.begin(), defaultValueStr.end(), ::isspace), defaultValueStr.end());
         }
 

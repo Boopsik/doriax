@@ -1120,6 +1120,13 @@ void LuaBinding::registerObjectClasses(lua_State *L){
         .addFunction("getShapeRestitution", 
             luabridge::overload<>(&Body2D::getShapeRestitution),
             luabridge::overload<size_t>(&Body2D::getShapeRestitution))
+        .addProperty("shapeSensor", (bool(Body2D::*)()const)&Body2D::isShapeSensor, (void(Body2D::*)(bool))&Body2D::setShapeSensor)
+        .addFunction("setShapeSensor", 
+            luabridge::overload<bool>(&Body2D::setShapeSensor),
+            luabridge::overload<size_t, bool>(&Body2D::setShapeSensor))
+        .addFunction("isShapeSensor", 
+            luabridge::overload<>(&Body2D::isShapeSensor),
+            luabridge::overload<size_t>(&Body2D::isShapeSensor))
         .addProperty("shapeEnableHitEvents", (bool(Body2D::*)()const)&Body2D::isShapeEnableHitEvents, (void(Body2D::*)(bool))&Body2D::setShapeEnableHitEvents)
         .addFunction("setShapeEnableHitEvents", 
             luabridge::overload<bool>(&Body2D::setShapeEnableHitEvents),

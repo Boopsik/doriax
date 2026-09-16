@@ -1689,6 +1689,7 @@ std::string editor::Factory::createBody2DComponent(int indentSpaces, EntityRegis
         code << ind << "body2d.shapes[" << idx << "].density = " << formatFloat(body.shapes[i].density) << ";\n";
         code << ind << "body2d.shapes[" << idx << "].friction = " << formatFloat(body.shapes[i].friction) << ";\n";
         code << ind << "body2d.shapes[" << idx << "].restitution = " << formatFloat(body.shapes[i].restitution) << ";\n";
+        code << ind << "body2d.shapes[" << idx << "].sensor = " << formatBool(body.shapes[i].sensor) << ";\n";
         code << ind << "body2d.shapes[" << idx << "].enableHitEvents = " << formatBool(body.shapes[i].enableHitEvents) << ";\n";
         code << ind << "body2d.shapes[" << idx << "].contactEvents = " << formatBool(body.shapes[i].contactEvents) << ";\n";
         code << ind << "body2d.shapes[" << idx << "].preSolveEvents = " << formatBool(body.shapes[i].preSolveEvents) << ";\n";
@@ -2271,6 +2272,14 @@ std::string editor::Factory::createScene(int indentSpaces, Scene* scene, std::st
     const std::string ind2 = indentation(indentSpaces+4);
     const std::string ind3 = indentation(indentSpaces+8);
 
+    // all at once, so a bundle factory never allocates an id the scene uses later
+    out << ind2 << "// Scene entities\n";
+    for (Entity entity : entities) {
+        if (bundleMemberEntities.count(entity)) continue;
+        out << ind2 << "scene->recreateEntity(" << entity << ");\n";
+    }
+    out << "\n";
+
     bool firstEntity = true;
 
     for (Entity entity : entities) {
@@ -2292,7 +2301,6 @@ std::string editor::Factory::createScene(int indentSpaces, Scene* scene, std::st
             out << ind2 << "{\n";
             std::string entityName = scene->getEntityName(entity);
             out << ind3 << "// Bundle instance: " << bi->bundlePath.string() << " (" << entityName << ")\n";
-            out << ind3 << "scene->recreateEntity(" << entity << ");\n";
             out << ind3 << "scene->setEntityName(" << entity << ", " << formatString(entityName) << ");\n\n";
 
             // Create root entity components (from scene data)
@@ -2332,7 +2340,6 @@ std::string editor::Factory::createScene(int indentSpaces, Scene* scene, std::st
             out << ind2 << "{\n";
             std::string entityName = scene->getEntityName(entity);
             out << ind3 << "// Entity " << entity << " (" << entityName << ")\n";
-            out << ind3 << "scene->recreateEntity(" << entity << ");\n";
             out << ind3 << "scene->setEntityName(" << entity << ", " << formatString(entityName) << ");\n\n";
 
             // Create and set all components

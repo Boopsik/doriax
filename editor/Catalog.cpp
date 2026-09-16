@@ -918,6 +918,9 @@ namespace {
         if (propertyName.compare(fieldPos, 11, "restitution") == 0 && fieldPos + 11 == propertyName.size()) {
             return {PropertyType::Float, UpdateFlags_Body2D, (void*)&defaultShape.restitution, (void*)&shape.restitution};
         }
+        if (propertyName.compare(fieldPos, 6, "sensor") == 0 && fieldPos + 6 == propertyName.size()) {
+            return {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defaultShape.sensor, (void*)&shape.sensor};
+        }
         if (propertyName.compare(fieldPos, 15, "enableHitEvents") == 0 && fieldPos + 15 == propertyName.size()) {
             return {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defaultShape.enableHitEvents, (void*)&shape.enableHitEvents};
         }
@@ -2384,6 +2387,7 @@ namespace {
             ps["shapes[" + idx + "].density"] = {PropertyType::Float, UpdateFlags_Body2D, (void*)&defShape.density, compRef ? (void*)&shape.density : nullptr};
             ps["shapes[" + idx + "].friction"] = {PropertyType::Float, UpdateFlags_Body2D, (void*)&defShape.friction, compRef ? (void*)&shape.friction : nullptr};
             ps["shapes[" + idx + "].restitution"] = {PropertyType::Float, UpdateFlags_Body2D, (void*)&defShape.restitution, compRef ? (void*)&shape.restitution : nullptr};
+            ps["shapes[" + idx + "].sensor"] = {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defShape.sensor, compRef ? (void*)&shape.sensor : nullptr};
             ps["shapes[" + idx + "].enableHitEvents"] = {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defShape.enableHitEvents, compRef ? (void*)&shape.enableHitEvents : nullptr};
             ps["shapes[" + idx + "].contactEvents"] = {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defShape.contactEvents, compRef ? (void*)&shape.contactEvents : nullptr};
             ps["shapes[" + idx + "].preSolveEvents"] = {PropertyType::Bool, UpdateFlags_Body2D, (void*)&defShape.preSolveEvents, compRef ? (void*)&shape.preSolveEvents : nullptr};

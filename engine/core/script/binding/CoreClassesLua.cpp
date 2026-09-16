@@ -319,6 +319,7 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .addStaticProperty("sceneCount", &SceneManager::getSceneCount)
         .addStaticProperty("currentSceneId", &SceneManager::getCurrentSceneId)
         .addStaticProperty("currentSceneName", &SceneManager::getCurrentSceneName)
+        .addStaticProperty("loadPending", &SceneManager::isLoadPending)
         .addStaticFunction("clearAll", &SceneManager::clearAll)
         .endClass();
 

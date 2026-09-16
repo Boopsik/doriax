@@ -6183,6 +6183,7 @@ YAML::Node editor::Stream::encodeBody2DComponent(const Body2DComponent& body) {
         shapeNode["density"] = body.shapes[i].density;
         shapeNode["friction"] = body.shapes[i].friction;
         shapeNode["restitution"] = body.shapes[i].restitution;
+        shapeNode["sensor"] = body.shapes[i].sensor;
         shapeNode["enableHitEvents"] = body.shapes[i].enableHitEvents;
         shapeNode["contactEvents"] = body.shapes[i].contactEvents;
         shapeNode["preSolveEvents"] = body.shapes[i].preSolveEvents;
@@ -6232,6 +6233,7 @@ Body2DComponent editor::Stream::decodeBody2DComponent(const YAML::Node& node, co
             if (node["shapes"][i]["density"]) body.shapes[i].density = node["shapes"][i]["density"].as<float>();
             if (node["shapes"][i]["friction"]) body.shapes[i].friction = node["shapes"][i]["friction"].as<float>();
             if (node["shapes"][i]["restitution"]) body.shapes[i].restitution = node["shapes"][i]["restitution"].as<float>();
+            if (node["shapes"][i]["sensor"]) body.shapes[i].sensor = node["shapes"][i]["sensor"].as<bool>();
             if (node["shapes"][i]["enableHitEvents"]) body.shapes[i].enableHitEvents = node["shapes"][i]["enableHitEvents"].as<bool>();
             if (node["shapes"][i]["contactEvents"]) body.shapes[i].contactEvents = node["shapes"][i]["contactEvents"].as<bool>();
             if (node["shapes"][i]["preSolveEvents"]) body.shapes[i].preSolveEvents = node["shapes"][i]["preSolveEvents"].as<bool>();

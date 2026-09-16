@@ -39,6 +39,9 @@ namespace doriax{
         float friction = 0.6f;
         float restitution = 0.0f;
 
+        // overlap only: always fires the sensor contact events, never collides
+        bool sensor = false;
+
         bool enableHitEvents = false;
         bool contactEvents = false;
         bool preSolveEvents = false;

@@ -238,6 +238,7 @@ namespace doriax {
         static std::atomic<bool> viewLoaded;
         static std::atomic<bool> paused;
         static std::atomic<bool> asyncLoading;
+        static bool frameRunning;
 
         static CursorType mouseCursorType;
         static MouseMode mouseMode;
@@ -363,6 +364,8 @@ namespace doriax {
         static void endAsyncThread();
         static bool isAsyncThread();
         static bool isViewLoaded();
+        // inside systemDraw(): scenes are updating, a stack must not be torn down
+        static bool isFrameRunning();
 
         static void setMaxResourceLoadingThreads(size_t maxThreads);
         static size_t getQueuedResourceCount();

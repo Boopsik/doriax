@@ -382,7 +382,9 @@ void editor::SceneRender2D::createOrUpdateBodyLines(Entity entity, const Transfo
     }
 
     float alpha = highlighted ? 1.0f : 0.35f;
-    const Vector4 bodyColor(0.2f, 0.95f, 0.95f, alpha);
+    const Vector4 solidColor(0.2f, 0.95f, 0.95f, alpha);
+    const Vector4 sensorColor(0.95f, 0.75f, 0.2f, alpha);
+    Vector4 bodyColor = solidColor;
     // must match how PhysicsSystem sizes the Box2D shape, parent scale included
     const Vector2 entityScale(transform.worldScale.x, transform.worldScale.y);
     const Vector2 absScale(std::fabs(entityScale.x), std::fabs(entityScale.y));
@@ -478,6 +480,7 @@ void editor::SceneRender2D::createOrUpdateBodyLines(Entity entity, const Transfo
 
     for (size_t i = 0; i < body.numShapes; i++){
         const Shape2D& shape = body.shapes[i];
+        bodyColor = shape.sensor ? sensorColor : solidColor;
 
         auto addPolygonEdges = [&](){
             for (size_t j = 0; j < shape.numVertices; j++){

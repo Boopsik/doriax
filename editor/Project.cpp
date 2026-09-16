@@ -2567,7 +2567,7 @@ editor::SceneProject* editor::Project::createRuntimeCloneFromSource(const SceneP
         return nullptr;
     }
 
-    SceneProject* runtime = new SceneProject();
+    std::unique_ptr<SceneProject> runtime(new SceneProject());
     runtime->opened = false;
     runtime->isModified = false;
     runtime->isVisible = false;
@@ -2580,13 +2580,13 @@ editor::SceneProject* editor::Project::createRuntimeCloneFromSource(const SceneP
     }
 
     YAML::Node sceneNode = YAML::LoadFile(fullPath.string());
-    Stream::decodeSceneProject(runtime, sceneNode, true);
+    Stream::decodeSceneProject(runtime.get(), sceneNode, true);
     //runtime->sceneRender = createSceneRender(runtime->sceneType, runtime->scene);
     runtime->defaultCamera = createDefaultCamera(runtime->sceneType, runtime->scene);
-    Stream::decodeSceneProjectEntities(this, runtime, sceneNode);
+    Stream::decodeSceneProjectEntities(this, runtime.get(), sceneNode);
     pauseEngineScene(runtime->scene, true);
 
-    return runtime;
+    return runtime.release();
 }
 
 void editor::Project::updateSceneCppScripts(SceneProject* sceneProject) {
@@ -7633,6 +7633,20 @@ void editor::Project::runPlayStartup(const std::shared_ptr<PlaySession>& session
                 } else {
                     updateSceneCppScripts(&currentSceneProject);
                     updateSceneBundles(&currentSceneProject);
+                }
+            } else if (!currentSceneProject.scene && currentSceneProject.cppScripts.empty() && !currentSceneProject.filepath.empty()) {
+                // SceneManager can load a closed scene while playing, so its scripts must be built too;
+                // a scene never saved by the editor has no script list yet, read it from the entities
+                std::unique_ptr<SceneProject> probe;
+                try {
+                    probe.reset(createRuntimeCloneFromSource(&currentSceneProject));
+                    updateSceneCppScripts(probe.get());
+                    currentSceneProject.cppScripts = probe->cppScripts;
+                } catch (const std::exception& e) {
+                    Out::warning("Scripts of scene '%s' not collected: %s", currentSceneProject.name.c_str(), e.what());
+                }
+                if (probe) {
+                    deleteSceneProject(probe.get());
                 }
             }
 

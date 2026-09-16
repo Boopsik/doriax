@@ -11,6 +11,7 @@ using namespace doriax;
 
 std::vector<SceneManager::SceneEntry> SceneManager::entries;
 uint32_t SceneManager::currentId = 0;
+std::optional<uint32_t> SceneManager::pendingId;
 std::map<uint32_t, Scene*> SceneManager::scenePtrs;
 
 std::vector<uint32_t> SceneManager::buildSceneStackIds(uint32_t id, const std::vector<uint32_t>& sceneIds) {
@@ -60,19 +61,52 @@ bool SceneManager::loadScene(const std::string& name) {
     return false;
 }
 
-bool SceneManager::loadScene(uint32_t id) {
-    for (int i = 0; i < (int)entries.size(); ++i) {
-        if (entries[i].id == id) {
-            Engine::removeAllScenes();
+SceneManager::SceneEntry* SceneManager::findEntry(uint32_t id) {
+    for (auto& entry : entries) {
+        if (entry.id == id) return &entry;
+    }
+    return nullptr;
+}
 
-            currentId = id;
-            entries[i].factory();
-            return true;
-        }
+void SceneManager::runFactory(uint32_t id) {
+    SceneEntry* entry = findEntry(id);
+    if (!entry) return;
+
+    Engine::removeAllScenes();
+
+    currentId = id;
+    entry->factory();
+}
+
+bool SceneManager::loadScene(uint32_t id) {
+    if (!findEntry(id)) {
+        Log::error("SceneManager: scene id %u not found", id);
+        return false;
     }
 
-    Log::error("SceneManager: scene id %u not found", id);
-    return false;
+    if (Engine::isFrameRunning()) {
+        if (pendingId && *pendingId != id) {
+            Log::warn("SceneManager: scene %u replaces pending scene %u", id, *pendingId);
+        }
+        pendingId = id;
+        return true;
+    }
+
+    pendingId.reset();
+    runFactory(id);
+    return true;
+}
+
+bool SceneManager::isLoadPending() {
+    return pendingId.has_value();
+}
+
+void SceneManager::applyPendingLoad() {
+    if (!pendingId) return;
+
+    uint32_t id = *pendingId;
+    pendingId.reset();
+    runFactory(id);
 }
 
 bool SceneManager::addChildScene(uint32_t id) {
@@ -182,6 +216,7 @@ std::string SceneManager::getCurrentSceneName() {
 void SceneManager::clearAll() {
     entries.clear();
     currentId = 0;
+    pendingId.reset();
     scenePtrs.clear();
 }
 

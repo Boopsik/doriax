@@ -9,6 +9,7 @@
 #include <functional>
 #include <vector>
 #include <map>
+#include <optional>
 #include <cstdint>
 
 namespace doriax {
@@ -40,8 +41,11 @@ namespace doriax {
 
         static std::vector<SceneEntry> entries;
         static uint32_t currentId;
+        static std::optional<uint32_t> pendingId;
         static std::map<uint32_t, Scene*> scenePtrs;
         static std::vector<uint32_t> buildSceneStackIds(uint32_t id, const std::vector<uint32_t>& sceneIds);
+        static SceneEntry* findEntry(uint32_t id);
+        static void runFactory(uint32_t id);
 
     public:
         // Register a named scene stack.
@@ -53,11 +57,20 @@ namespace doriax {
 
         // Load a scene stack by name. Calls Engine::removeAllScenes() then invokes the
         // registered factory. Returns false if the name is not found.
+        // Inside a frame (script callback, contact, button press) the transition is deferred
+        // to the next frame, as the factory tears down the running scenes and scripts; the
+        // current scene only changes then.
         static bool loadScene(const std::string& name);
 
         // Load a scene stack by id.
         // Returns false if the id is not found.
         static bool loadScene(uint32_t id);
+
+        // True between a deferred loadScene() and the frame that applies it.
+        static bool isLoadPending();
+
+        // Runs the deferred transition. Called by Engine before the scenes update.
+        static void applyPendingLoad();
 
         // Add an already-created child scene stack. Scene id/name overloads use the
         // pointers registered with setScenePtr(), so all scenes in the stack must already be loaded.

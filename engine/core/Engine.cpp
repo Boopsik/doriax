@@ -7,6 +7,7 @@
 #include "Input.h"
 #include "render/SystemRender.h"
 #include "script/LuaBinding.h"
+#include "manager/SceneManager.h"
 #include "subsystem/AudioSystem.h"
 #include "subsystem/RenderSystem.h"
 #include "subsystem/UISystem.h"
@@ -83,6 +84,7 @@ double Engine::updateTime = 1.0 / 60.0; //60Hz
 std::atomic<bool> Engine::viewLoaded = false;
 std::atomic<bool> Engine::paused = false;
 std::atomic<bool> Engine::asyncLoading = false;
+bool Engine::frameRunning = false;
 
 CursorType Engine::mouseCursorType = CursorType::ARROW;
 MouseMode Engine::mouseMode = MouseMode::NORMAL;
@@ -646,6 +648,10 @@ bool Engine::isAsyncThread(){
     return getAsyncThreadDepthStorage() > 0;
 }
 
+bool Engine::isFrameRunning(){
+    return frameRunning;
+}
+
 bool Engine::isViewLoaded(){
     return viewLoaded;
 }
@@ -1046,7 +1052,13 @@ void Engine::systemDraw(){
 
     drawSemaphore.acquire();
 
+    // async uploads of the last frame, while the scenes that queued them still exist
     SystemRender::executeQueue();
+
+    frameRunning = true;
+
+    // a transition requested during the last frame; one requested by its factory waits again
+    SceneManager::applyPendingLoad();
 
     // before the update, which bakes the PIP_RTT pipelines from the target in use
     beginCompositeFramebuffer();
@@ -1136,6 +1148,8 @@ void Engine::systemDraw(){
             it = oneTimeScenes.erase(it);
         }
     }
+
+    frameRunning = false;
 
     drawSemaphore.release();
 }

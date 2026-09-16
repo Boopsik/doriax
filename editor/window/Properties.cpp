@@ -10314,10 +10314,15 @@ void editor::Properties::drawBody2DComponent(ComponentType cpType, SceneProject*
         propertyRow(RowPropertyType::Float, cpType, shapeKey + ".friction", "Friction", sceneProject, entities, settingsFloat);
         propertyRow(RowPropertyType::Float, cpType, shapeKey + ".restitution", "Restitution", sceneProject, entities, settingsFloat);
         if (shape.type != Shape2DType::CHAIN){
+            RowSettings sensorSettings;
+            sensorSettings.help = "Overlap only: never collides and always reports its sensor events";
+            propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".sensor", "Sensor", sceneProject, entities, sensorSettings);
             propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".enableHitEvents", "Enable Hit Events", sceneProject, entities);
             propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".contactEvents", "Contact Events", sceneProject, entities);
             propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".preSolveEvents", "PreSolve Events", sceneProject, entities);
-            propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".sensorEvents", "Sensor Events", sceneProject, entities);
+            if (!shape.sensor){
+                propertyRow(RowPropertyType::Bool, cpType, shapeKey + ".sensorEvents", "Sensor Events", sceneProject, entities);
+            }
         }
         if (shape.type == Shape2DType::POLYGON){
             ImGui::PushStyleColor(ImGuiCol_Text, Theme::Colors::SubtleText);

@@ -61,6 +61,13 @@ namespace doriax{
         void setShapeFriction(size_t index, float friction);
         void setShapeRestitution(size_t index, float restitution);
 
+        // no live toggle in Box2D, shapes are rebuilt on the next step
+        void setShapeSensor(bool sensor);
+        void setShapeSensor(size_t index, bool sensor);
+
+        bool isShapeSensor() const;
+        bool isShapeSensor(size_t index) const;
+
         void setShapeEnableHitEvents(bool hitEvents);
         void setShapeContactEvents(bool contactEvents);
         void setShapePreSolveEvents(bool preSolveEvent);

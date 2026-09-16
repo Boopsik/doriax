@@ -400,6 +400,41 @@ void Body2D::setShapeRestitution(size_t index, float restitution){
     }
 }
 
+void Body2D::setShapeSensor(bool sensor){
+    setShapeSensor(0, sensor);
+}
+
+void Body2D::setShapeSensor(size_t index, bool sensor){
+    Body2DComponent& body = getComponent<Body2DComponent>();
+
+    if (index >= 0 && index < body.numShapes){
+        if (body.shapes[index].type == Shape2DType::CHAIN){
+            Log::error("Cannot set sensor of chain shape %i", index);
+        }else if (body.shapes[index].sensor != sensor){
+            body.shapes[index].sensor = sensor;
+            body.needUpdateShapes = true;
+        }
+    }else{
+        Log::error("Cannot find shape %i of body", index);
+    }
+}
+
+bool Body2D::isShapeSensor() const{
+    return isShapeSensor(0);
+}
+
+bool Body2D::isShapeSensor(size_t index) const{
+    Body2DComponent& body = getComponent<Body2DComponent>();
+
+    if (index >= 0 && index < body.numShapes){
+        return body.shapes[index].sensor;
+    }else{
+        Log::error("Cannot find shape %i of body", index);
+    }
+
+    return false;
+}
+
 void Body2D::setShapeEnableHitEvents(bool hitEvents){
     setShapeEnableHitEvents(0, hitEvents);
 }
@@ -470,7 +505,7 @@ void Body2D::setShapeSensorEvents(size_t index, bool sensorEvents){
         if (body.shapes[index].type == Shape2DType::CHAIN){
             Log::error("Cannot set sensor events of chain shape %i", index);
         }else if (b2Shape_IsValid(body.shapes[index].shape)){
-            b2Shape_EnableSensorEvents(body.shapes[index].shape, sensorEvents);
+            b2Shape_EnableSensorEvents(body.shapes[index].shape, sensorEvents || body.shapes[index].sensor);
         }
     }else{
         Log::error("Cannot find shape %i of body", index);
@@ -583,7 +618,7 @@ bool Body2D::isShapeSensorEvents(size_t index) const{
     Body2DComponent& body = getComponent<Body2DComponent>();
 
     if (index >= 0 && index < body.numShapes){
-        return body.shapes[index].sensorEvents;
+        return body.shapes[index].sensorEvents || body.shapes[index].sensor;
     }else{
         Log::error("Cannot find shape %i of body", index);
     }
@@ -636,7 +671,8 @@ void Body2D::setLinearVelocity(Vector2 linearVelocity){
     float pointsToMeterScale = getPointsToMeterScale();
 
     checkBody(body);
-    b2Body_SetLinearVelocity(body.body, {linearVelocity.x * pointsToMeterScale, linearVelocity.y * pointsToMeterScale});
+    // points per second, like positions
+    b2Body_SetLinearVelocity(body.body, {linearVelocity.x / pointsToMeterScale, linearVelocity.y / pointsToMeterScale});
 }
 
 void Body2D::setAngularVelocity(float angularVelocity){
@@ -722,7 +758,7 @@ Vector2 Body2D::getLinearVelocity() const{
     float pointsToMeterScale = getPointsToMeterScale();
     b2Vec2 vec = b2Body_GetLinearVelocity(body.body);
 
-    return Vector2(vec.x / pointsToMeterScale, vec.y / pointsToMeterScale);
+    return Vector2(vec.x * pointsToMeterScale, vec.y * pointsToMeterScale);
 }
 
 float Body2D::getAngularVelocity() const{

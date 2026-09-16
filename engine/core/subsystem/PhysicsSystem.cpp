@@ -3,6 +3,7 @@
 
 #include "PhysicsSystem.h"
 #include "Scene.h"
+#include "subsystem/RenderSystem.h"
 #include "util/Angle.h"
 
 #include "util/Box2DAux.h"
@@ -30,6 +31,24 @@ namespace {
     Vector2 entityWorldScale2D(Scene* scene, Entity entity){
         const Vector3 scale = entityWorldScale(scene, entity);
         return Vector2(scale.x, scale.y);
+    }
+
+    // world pose of a transform the render pass has not updated yet, parents first
+    void resolveWorldTransform(Scene* scene, Transform& transform, int depth = 0){
+        if (transform.parent != NULL_ENTITY && depth < 64){
+            Transform* parent = scene->findComponent<Transform>(transform.parent);
+            if (parent && parent->needUpdate){
+                resolveWorldTransform(scene, *parent, depth + 1);
+            }
+        }
+        scene->getSystem<RenderSystem>()->updateTransform(transform);
+    }
+
+    void resolveWorldPose(Scene* scene, Entity entity){
+        Transform* transform = scene->findComponent<Transform>(entity);
+        if (transform && transform->needUpdate){
+            resolveWorldTransform(scene, *transform);
+        }
     }
 
     // Jolt's global allocator/factory/type registration is process-wide; run once
@@ -452,16 +471,12 @@ void PhysicsSystem::updateBody2DPosition(Signature signature, Entity entity, Bod
         Transform& transform = scene->getComponent<Transform>(entity);
         if (b2Body_IsValid(body.body)){
 
+            if (body.newBody){
+                resolveWorldPose(scene, entity);
+            }
+
             b2Vec2 bNewPosition = {transform.worldPosition.x / pointsToMeterScale2D, transform.worldPosition.y / pointsToMeterScale2D};
             float bNewAngle = Angle::defaultToRad(transform.worldRotation.getRoll());
-
-            if (body.newBody && transform.needUpdate){
-                bNewPosition = {transform.position.x / pointsToMeterScale2D, transform.position.y / pointsToMeterScale2D};
-                bNewAngle = Angle::defaultToRad(transform.rotation.getRoll());
-                if (transform.parent != NULL_ENTITY){
-                    Log::warn("Body position and rotation cannot be obtained from world: %u (%s)", entity, scene->getEntityName(entity).c_str());
-                }
-            }
 
             b2Transform bTransform = b2Body_GetTransform(body.body);
 
@@ -477,16 +492,12 @@ void PhysicsSystem::updateBody3DPosition(Signature signature, Entity entity, Bod
     if (signature.test(scene->getComponentId<Transform>())){
         Transform& transform = scene->getComponent<Transform>(entity);
         if (!body.body.IsInvalid()){
+            if (body.newBody){
+                resolveWorldPose(scene, entity);
+            }
+
             JPH::Vec3 jNewPosition(transform.worldPosition.x, transform.worldPosition.y, transform.worldPosition.z);
             const Quaternion* newRotation = &transform.worldRotation;
-
-            if (body.newBody && transform.needUpdate){
-                jNewPosition = JPH::Vec3(transform.position.x, transform.position.y, transform.position.z);
-                newRotation = &transform.rotation;
-                if (transform.parent != NULL_ENTITY){
-                    Log::warn("Body position and rotation cannot be obtained from world: %u (%s)", entity, scene->getEntityName(entity).c_str());
-                }
-            }
 
             JPH::Quat jNewQuat = toValidatedJoltRotation(*newRotation, entity, -1);
 
@@ -686,10 +697,11 @@ bool PhysicsSystem::syncBody2DShapes(Entity entity, Body2DComponent& body){
         shapeDef.density = shapeData.density;
         shapeDef.friction = shapeData.friction;
         shapeDef.restitution = shapeData.restitution;
+        shapeDef.isSensor = shapeData.sensor;
         shapeDef.enableHitEvents = shapeData.enableHitEvents;
         shapeDef.enableContactEvents = shapeData.contactEvents;
         shapeDef.enablePreSolveEvents = shapeData.preSolveEvents;
-        shapeDef.enableSensorEvents = shapeData.sensorEvents;
+        shapeDef.enableSensorEvents = shapeData.sensorEvents || shapeData.sensor;
         shapeDef.filter.categoryBits = shapeData.categoryBits;
         shapeDef.filter.maskBits = shapeData.maskBits;
         shapeDef.filter.groupIndex = shapeData.groupIndex;
@@ -1277,6 +1289,9 @@ bool PhysicsSystem::loadBody2D(Entity entity){
         return false;
     }
 
+    // shapes are sized by the world scale
+    resolveWorldPose(scene, entity);
+
     Body2DComponent& body = scene->getComponent<Body2DComponent>(entity);
 
     if (!b2Body_IsValid(body.body) || body.needReloadBody){
@@ -1332,6 +1347,8 @@ void PhysicsSystem::destroyBody2D(Body2DComponent& body){
 }
 
 bool PhysicsSystem::loadBody3D(Entity entity){
+    resolveWorldPose(scene, entity);
+
     Body3DComponent& body = scene->getComponent<Body3DComponent>(entity);
     Vector3 entityScale = entityWorldScale(scene, entity);
     if (!body.body.IsInvalid() && entityScale != body.loadedScale){
