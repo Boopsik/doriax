@@ -5,6 +5,7 @@
 
 #include "AppSettings.h"
 #include "Backend.h"
+#include "Log.h"
 
 #include "imgui.h"
 
@@ -87,7 +88,16 @@ bool EditorFrame::run(EditorFrameState& state){
         ? project->isVSyncEnabled()
         : AppSettings::getEditorVSyncEnabled();
     const bool frameSync = state.focused && vsync;
-    if (!state.minimized && !renderer->updateTarget(state.width, state.height, frameSync)){
+    const bool targetReady =
+        state.minimized || renderer->updateTarget(state.width, state.height, frameSync);
+
+    // submits are dropped after a GPU reset, so the window would just stop
+    // updating. Checked after updateTarget, which is where a loss often lands.
+    if (renderer->isDeviceLost()){
+        Log::error("Graphics device was reset, closing the editor without saving");
+        return false;
+    }
+    if (!targetReady){
         return false;
     }
 

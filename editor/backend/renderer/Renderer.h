@@ -15,6 +15,8 @@ namespace doriax{
 
 namespace doriax::editor{
 
+    using GLProc = void (*)();
+
     // Window-system calls the renderer needs, filled in by the backend
     struct RendererPlatform{
         #if defined(SOKOL_VULKAN)
@@ -28,6 +30,9 @@ namespace doriax::editor{
         void (*makeCurrent)(ImGuiViewport* viewport) = nullptr;
         void (*swapBuffers)(ImGuiViewport* viewport) = nullptr;
         void (*setSwapInterval)(int interval) = nullptr;
+        GLProc (*getProcAddress)(const char* name) = nullptr;
+        // only true once createContext() has made a context that reports resets
+        bool (*hasResetNotification)() = nullptr;
         #endif
     };
 
@@ -55,6 +60,10 @@ namespace doriax::editor{
             bool endFrame(ImDrawData* drawData, int width, int height);
             void present();
             void renderViewports(bool render);
+
+            // True once the driver has reset the GPU under us, which drops
+            // every later submit: the frame loop must stop instead of drawing.
+            bool isDeviceLost();
 
             ImTextureID getTexture(TextureRender* texture);
             // Releases ImGui bindings of textures the engine has destroyed

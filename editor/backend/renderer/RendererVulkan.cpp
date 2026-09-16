@@ -24,7 +24,12 @@ namespace {
 // ring keeps it valid across present-mode changes
 constexpr uint32_t IMGUI_RENDER_BUFFER_COUNT = 15;
 
+// ImGui takes checkVkResult as its CheckVkResultFn, so latching here covers its
+// submits too. A lost device never recovers, so one flag per process is enough.
+bool deviceLost = false;
+
 void checkVkResult(VkResult result){
+    if (result == VK_ERROR_DEVICE_LOST) deviceLost = true;
     if (result < 0) std::fprintf(stderr, "Vulkan error: %d\n", result);
 }
 
@@ -299,6 +304,8 @@ void Renderer::State::rebuildImGuiPipeline(){
 bool Renderer::State::createMainSwapchain(
     int width, int height, bool synchronized){
     if (width <= 0 || height <= 0) return false;
+    // nothing to build on a lost device, and the wait below can stall on one
+    if (deviceLost) return false;
     if (device != VK_NULL_HANDLE){
         const VkResult result = vkDeviceWaitIdle(device);
         if (result != VK_SUCCESS){
@@ -423,7 +430,8 @@ void Renderer::State::flushRetiredImGuiTextures(bool all){
 Renderer::Renderer() : state(std::make_unique<State>()){}
 
 Renderer::~Renderer(){
-    if (state->device != VK_NULL_HANDLE) vkDeviceWaitIdle(state->device);
+    // a lost device has nothing left to wait for, and the wait can stall on one
+    if (state->device != VK_NULL_HANDLE && !deviceLost) vkDeviceWaitIdle(state->device);
     state->destroySokolSemaphores();
     if (state->swapchain.Swapchain != VK_NULL_HANDLE)
         ImGui_ImplVulkanH_DestroyWindow(
@@ -470,7 +478,7 @@ bool Renderer::init(const RendererPlatform& platform, int width, int height, boo
 }
 
 void Renderer::shutdownImGui(){
-    if (state->device != VK_NULL_HANDLE) vkDeviceWaitIdle(state->device);
+    if (state->device != VK_NULL_HANDLE && !deviceLost) vkDeviceWaitIdle(state->device);
     state->flushRetiredImGuiTextures(true);
     ImGui_ImplVulkan_Shutdown();
     state->imguiTextures.clear();
@@ -633,6 +641,10 @@ void Renderer::renderViewports(bool render){
     if (render){
         ImGui::RenderPlatformWindowsDefault();
     }
+}
+
+bool Renderer::isDeviceLost(){
+    return deviceLost;
 }
 
 ImTextureID Renderer::getTexture(TextureRender* texture){

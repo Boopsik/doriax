@@ -600,8 +600,14 @@ constexpr int WGL_CONTEXT_MAJOR_VERSION = 0x2091;
 constexpr int WGL_CONTEXT_MINOR_VERSION = 0x2092;
 constexpr int WGL_CONTEXT_PROFILE_MASK = 0x9126;
 constexpr int WGL_CONTEXT_CORE_PROFILE_BIT = 0x00000001;
+constexpr int WGL_CONTEXT_FLAGS = 0x2094;
+// WGL_ARB_create_context_robustness
+constexpr int WGL_CONTEXT_ROBUST_ACCESS_BIT = 0x00000004;
+constexpr int WGL_CONTEXT_RESET_NOTIFICATION_STRATEGY = 0x8256;
+constexpr int WGL_LOSE_CONTEXT_ON_RESET = 0x8252;
 
 HGLRC glContext = nullptr;
+bool glContextResetNotification = false;
 int pixelFormat = 0;
 SwapIntervalProc swapIntervalEXT = nullptr;
 void (*imguiDestroyWindow)(ImGuiViewport*) = nullptr;
@@ -706,13 +712,27 @@ editor::RendererPlatform rendererPlatform() {
         auto createContext = wglProc<CreateContextAttribsProc>(
             "wglCreateContextAttribsARB");
         if (createContext) {
-            const int attributes[] = {
+            // A GPU reset goes unnoticed without a reset notification strategy:
+            // the context keeps taking calls that never reach the screen.
+            const int robustAttributes[] = {
                 WGL_CONTEXT_MAJOR_VERSION, 4,
                 WGL_CONTEXT_MINOR_VERSION, 1,
                 WGL_CONTEXT_PROFILE_MASK, WGL_CONTEXT_CORE_PROFILE_BIT,
+                WGL_CONTEXT_FLAGS, WGL_CONTEXT_ROBUST_ACCESS_BIT,
+                WGL_CONTEXT_RESET_NOTIFICATION_STRATEGY, WGL_LOSE_CONTEXT_ON_RESET,
                 0
             };
-            glContext = createContext(deviceContext, nullptr, attributes);
+            glContext = createContext(deviceContext, nullptr, robustAttributes);
+            glContextResetNotification = glContext != nullptr;
+            if (!glContext) {
+                const int attributes[] = {
+                    WGL_CONTEXT_MAJOR_VERSION, 4,
+                    WGL_CONTEXT_MINOR_VERSION, 1,
+                    WGL_CONTEXT_PROFILE_MASK, WGL_CONTEXT_CORE_PROFILE_BIT,
+                    0
+                };
+                glContext = createContext(deviceContext, nullptr, attributes);
+            }
         }
         wglMakeCurrent(nullptr, nullptr);
         if (!glContext) {
@@ -734,6 +754,7 @@ editor::RendererPlatform rendererPlatform() {
             wglDeleteContext(glContext);
             glContext = nullptr;
         }
+        glContextResetNotification = false;
         for (const auto& entry : windowContexts) ReleaseDC(entry.first, entry.second);
         windowContexts.clear();
         swapIntervalEXT = nullptr;
@@ -756,6 +777,10 @@ editor::RendererPlatform rendererPlatform() {
     platform.setSwapInterval = [](int interval) {
         if (swapIntervalEXT) swapIntervalEXT(interval);
     };
+    platform.getProcAddress = [](const char* name) {
+        return wglProc<editor::GLProc>(name);
+    };
+    platform.hasResetNotification = []() { return glContextResetNotification; };
     return platform;
 }
 

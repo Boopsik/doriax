@@ -2355,7 +2355,9 @@ std::filesystem::path editor::App::getUserShaderCacheDir(){
     //      tiling with distance, from three new terrain varyings.
     // v25: skinned normals and tangents are transformed as directions (mat3), no longer
     //      as points, so posed bone translations stop flattening the lighting.
-    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v25";
+    // v26: shadow PCF loop bounds are clamped on every backend, not just HLSL, so a
+    //      bad uniform can no longer produce an unbounded loop (a GPU hang).
+    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v26";
 }
 
 void editor::App::pushTabNotificationStyle(){

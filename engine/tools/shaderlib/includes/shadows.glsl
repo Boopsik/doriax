@@ -1,9 +1,14 @@
+// The PCF bounds come from a uniform, so every backend clamps them to the range
+// the engine can set: a loop the GPU cannot bound is a device hang, not a glitch.
 #ifdef IS_HLSL
 // HLSL unrolls any loop holding a texture lookup, so the PCF bound has to be a
 // constant and its taps multiply with the light and cascade loops around it.
 // Capping keeps that compilable: MEDIUM and HIGH quality render as LOW here.
 const int MAX_PCF_RADIUS = 1;   // 3x3 kernel
 const int MAX_PCF_RINGS = 1;    // center + 1 ring
+#else
+const int MAX_PCF_RADIUS = 3;   // 7x7 kernel, ShadowQuality::HIGH
+const int MAX_PCF_RINGS = 3;    // center + 3 rings, ShadowQuality::HIGH
 #endif
 
 struct Shadow{
@@ -127,10 +132,7 @@ float shadowCalculationAux(int shadowMapIndex, Shadow shadowConf, float NdotL){
 
     // PCF kernel radius from the scene's shadow quality (cameraDir.w), uniform-driven
     // so quality changes need no shader rebuild: 0 = 1 tap, 1 = 3x3, 2 = 5x5, 3 = 7x7
-    int pcfRadius = int(lighting.cameraDir.w);
-    #ifdef IS_HLSL
-        pcfRadius = min(pcfRadius, MAX_PCF_RADIUS);
-    #endif
+    int pcfRadius = clamp(int(lighting.cameraDir.w), 0, MAX_PCF_RADIUS);
 
     if (pcfRadius > 0){
 
@@ -214,10 +216,7 @@ float shadowCubeCalculationPCF(int shadowMapIndex, vec3 fragToLight, float NdotL
 
     // PCF ring count from the scene's shadow quality (cameraDir.w), uniform-driven:
     // 0 = 1 tap, 1 = 9 taps (center + 1 ring), 2 = 17 taps, 3 = 25 taps
-    int pcfRings = int(lighting.cameraDir.w);
-    #ifdef IS_HLSL
-        pcfRings = min(pcfRings, MAX_PCF_RINGS);
-    #endif
+    int pcfRings = clamp(int(lighting.cameraDir.w), 0, MAX_PCF_RINGS);
 
     if (pcfRings > 0){
 

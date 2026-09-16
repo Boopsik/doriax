@@ -1034,7 +1034,7 @@ void RenderSystem::processLights2D(){
 
     // PCF tap radius from the scene's 2D shadow quality (taps = 2*radius + 1)
     float pcfRadius = 2.0f;
-    switch (scene->getShadowQuality()){
+    switch (scene->getShadow2DQuality()){
         case ShadowQuality::NONE:   pcfRadius = 0.0f; break;
         case ShadowQuality::LOW:    pcfRadius = 2.0f; break;
         case ShadowQuality::MEDIUM: pcfRadius = 4.0f; break;

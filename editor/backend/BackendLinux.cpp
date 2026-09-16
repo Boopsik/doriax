@@ -2488,6 +2488,7 @@ using SwapIntervalProc = void (*)(Display*, GLXDrawable, int);
 
 GLXFBConfig framebufferConfig = nullptr;
 GLXContext glContext = nullptr;
+bool glContextResetNotification = false;
 SwapIntervalProc swapIntervalEXT = nullptr;
 bool glxContextError = false;
 
@@ -2569,24 +2570,47 @@ editor::RendererPlatform rendererPlatform() {
             std::fprintf(stderr, "Error: GLX_ARB_create_context is required.\n");
             return false;
         }
-        const int attributes[] = {
-            GLX_CONTEXT_MAJOR_VERSION_ARB, 4,
-            GLX_CONTEXT_MINOR_VERSION_ARB, 1,
-            GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
-            None
-        };
         // Some drivers report an unsupported profile with an X error instead
         // of returning null
-        XSync(backend->display, False);
-        glxContextError = false;
-        XErrorHandler previousHandler = XSetErrorHandler(recordGlxContextError);
-        glContext = createContext(
-            backend->display, framebufferConfig, nullptr, True, attributes);
-        XSync(backend->display, False);
-        XSetErrorHandler(previousHandler);
-        if (glxContextError || !glContext) {
-            if (glContext) glXDestroyContext(backend->display, glContext);
-            glContext = nullptr;
+        auto tryCreateContext = [&](const int* attributes) -> GLXContext {
+            XSync(backend->display, False);
+            glxContextError = false;
+            XErrorHandler previousHandler = XSetErrorHandler(recordGlxContextError);
+            GLXContext context = createContext(
+                backend->display, framebufferConfig, nullptr, True, attributes);
+            XSync(backend->display, False);
+            XSetErrorHandler(previousHandler);
+            if (glxContextError && context) {
+                glXDestroyContext(backend->display, context);
+                context = nullptr;
+            }
+            return context;
+        };
+
+        // A GPU reset goes unnoticed without a reset notification strategy: the
+        // context keeps taking calls that never reach the screen.
+        if (hasGlxExtension("GLX_ARB_create_context_robustness")) {
+            const int robustAttributes[] = {
+                GLX_CONTEXT_MAJOR_VERSION_ARB, 4,
+                GLX_CONTEXT_MINOR_VERSION_ARB, 1,
+                GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+                GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB,
+                GLX_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB, GLX_LOSE_CONTEXT_ON_RESET_ARB,
+                None
+            };
+            glContext = tryCreateContext(robustAttributes);
+            glContextResetNotification = glContext != nullptr;
+        }
+        if (!glContext) {
+            const int attributes[] = {
+                GLX_CONTEXT_MAJOR_VERSION_ARB, 4,
+                GLX_CONTEXT_MINOR_VERSION_ARB, 1,
+                GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+                None
+            };
+            glContext = tryCreateContext(attributes);
+        }
+        if (!glContext) {
             std::fprintf(stderr, "Error: Could not create an OpenGL 4.1 core context.\n");
             return false;
         }
@@ -2607,6 +2631,7 @@ editor::RendererPlatform rendererPlatform() {
             glXDestroyContext(backend->display, glContext);
             glContext = nullptr;
         }
+        glContextResetNotification = false;
         swapIntervalEXT = nullptr;
         framebufferConfig = nullptr;
     };
@@ -2628,6 +2653,10 @@ editor::RendererPlatform rendererPlatform() {
         if (swapIntervalEXT)
             swapIntervalEXT(backend->display, backend->mainWindow->handle, interval);
     };
+    platform.getProcAddress = [](const char* name) {
+        return glxProc<editor::GLProc>(name);
+    };
+    platform.hasResetNotification = []() { return glContextResetNotification; };
     return platform;
 }
 

@@ -23,10 +23,11 @@ vec3 getNormal2D(){
 }
 
 #ifdef USE_SHADOWS_2D
+// Bound clamped on every backend, constant on HLSL: see shadows.glsl
 #ifdef IS_HLSL
-// Constant bound for the same reason as the 3D kernel (see shadows.glsl), so
-// MEDIUM and HIGH 2D shadow quality render as LOW here
-const int MAX_SHADOW2D_RADIUS = 2;  // 5 taps
+const int MAX_SHADOW2D_RADIUS = 2;  // 5 taps; MEDIUM and HIGH render as LOW here
+#else
+const int MAX_SHADOW2D_RADIUS = 6;  // 13 taps, Shadow2DQuality::HIGH
 #endif
 
 // 1D polar shadow map lookup: the row stores, per angle around the light, the
@@ -45,10 +46,7 @@ float shadow2DCalculation(float row, vec2 lightToFrag, float dist01, float softn
         v = 1.0 - v;
     #endif
 
-    int radius = int(lighting2d.atlasInfo.w);
-    #ifdef IS_HLSL
-        radius = min(radius, MAX_SHADOW2D_RADIUS);
-    #endif
+    int radius = clamp(int(lighting2d.atlasInfo.w), 0, MAX_SHADOW2D_RADIUS);
     if (radius <= 0){
         float occ = decodeDepth(texture(sampler2D(u_shadow2DAtlas, u_shadow2DAtlas_smp), vec2(u, v)));
         return (dist01 - bias <= occ) ? 1.0 : 0.0;

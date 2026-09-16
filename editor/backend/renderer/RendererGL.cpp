@@ -11,10 +11,20 @@
 using namespace doriax;
 using namespace doriax::editor;
 
+namespace {
+
+// GL_ARB_robustness / GL_KHR_robustness: GL_NO_ERROR while the context is
+// healthy, a *_CONTEXT_RESET value once the driver has reset the GPU
+using GetGraphicsResetStatusProc = unsigned int (*)();
+
+} // namespace
+
 struct Renderer::State{
     RendererPlatform platform;
     CameraRender render;
     int swapInterval = -1;
+    GetGraphicsResetStatusProc getGraphicsResetStatus = nullptr;
+    bool deviceLost = false;
 
     static Renderer* of(ImGuiViewport* viewport){
         return static_cast<Renderer*>(viewport->RendererUserData);
@@ -41,6 +51,17 @@ bool Renderer::init(const RendererPlatform& platform, int, int, bool synchronize
     state->platform = platform;
     if (!state->platform.createContext()){
         return false;
+    }
+
+    // Only a context that reports resets is worth querying. The 4.5 core name is
+    // left out on purpose: this context is 4.1, so it would resolve to a stub.
+    if (state->platform.getProcAddress && state->platform.hasResetNotification &&
+        state->platform.hasResetNotification()){
+        for (const char* name : {"glGetGraphicsResetStatusARB", "glGetGraphicsResetStatusKHR"}){
+            state->getGraphicsResetStatus = reinterpret_cast<GetGraphicsResetStatusProc>(
+                state->platform.getProcAddress(name));
+            if (state->getGraphicsResetStatus) break;
+        }
     }
     updateTarget(0, 0, synchronized);
     if (!ImGui_ImplOpenGL3_Init("#version 410")){
@@ -115,6 +136,14 @@ void Renderer::renderViewports(bool render){
         state->platform.makeCurrent(nullptr);
         state->platform.setSwapInterval(state->swapInterval);
     }
+}
+
+bool Renderer::isDeviceLost(){
+    // the context stays current between frames, so this needs no makeCurrent
+    if (!state->deviceLost && state->getGraphicsResetStatus){
+        state->deviceLost = state->getGraphicsResetStatus() != 0; // GL_NO_ERROR
+    }
+    return state->deviceLost;
 }
 
 ImTextureID Renderer::getTexture(TextureRender* texture){
