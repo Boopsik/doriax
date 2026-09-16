@@ -2072,6 +2072,14 @@ void editor::App::clearSceneWindowState(uint32_t sceneId) {
         sceneWindow->clearSceneState(sceneId);
     }
 
+    if (propertiesWindow) {
+        propertiesWindow->clearSceneState(sceneId);
+    }
+
+    if (animationWindow) {
+        animationWindow->clearSceneState(sceneId);
+    }
+
     if (lastActivatedScene == sceneId) {
         resetLastActivatedScene();
     }
@@ -2174,6 +2182,12 @@ void editor::App::stopTransientPreviews() {
     }
     if (propertiesWindow) {
         propertiesWindow->stopTransientPreviews();
+    }
+}
+
+void editor::App::flushSceneMaterialWrites(uint32_t sceneId) {
+    if (propertiesWindow) {
+        propertiesWindow->flushDirtyMaterialsForScene(sceneId);
     }
 }
 

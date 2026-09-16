@@ -29,6 +29,7 @@ namespace doriax::editor {
         virtual void updateResourcesPath();
         virtual void updateWindowTitle(const std::string& projectName);
         virtual void stopTransientPreviews();
+        virtual void flushSceneMaterialWrites(uint32_t sceneId);
         virtual void saveAllCodeEditors();
         virtual void requestScenePlayFocus(uint32_t sceneId);
 

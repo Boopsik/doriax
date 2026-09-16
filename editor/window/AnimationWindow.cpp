@@ -1291,6 +1291,26 @@ void editor::AnimationWindow::stopPreview(Scene* scene, SceneProject* sceneProje
     }
 }
 
+void editor::AnimationWindow::clearSceneState(uint32_t sceneId) {
+    if (!isPreviewing || selectedSceneId != sceneId) {
+        return;
+    }
+
+    // The scene is already deleted, drop the snapshots instead of restoring them
+    previewState.clear();
+    previewAnimations.clear();
+    previewPrimary = NULL_ENTITY;
+    transitionTarget = NULL_ENTITY;
+    isPreviewing = false;
+    isPlaying = false;
+    isDraggingFrame = false;
+    draggingFrameIndex = -1;
+    isDraggingKey = false;
+    isResizingFrame = false;
+    resizingFrameIndex = -1;
+    resizeSide = 0;
+}
+
 std::string editor::AnimationWindow::getAnimationEntityLabel(Entity entity, Scene* scene) const {
     std::string label = scene->getEntityName(entity);
     if (label.empty()) {

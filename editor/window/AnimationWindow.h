@@ -157,6 +157,7 @@ namespace doriax::editor{
         bool isOpen() const;
 
         void selectEntity(Entity entity, uint32_t sceneId);
+        void clearSceneState(uint32_t sceneId);
 
         bool isPreviewingEntity(Entity entity, uint32_t sceneId) const;
         bool getIsPlaying() const;

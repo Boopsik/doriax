@@ -95,6 +95,8 @@ namespace doriax::editor{
         // Bumped on structural changes so the Structure window can cache its tree.
         uint64_t structureVersion = 0;
         bool isModified = false;
+        // True while the id has never reached disk, so it can be handed out again
+        bool transientId = false;
         bool isVisible = false;
         bool opened = true;
         bool expandedInline = false;
@@ -440,6 +442,10 @@ namespace doriax::editor{
         void collectStartActiveScenes(uint32_t sceneId, std::vector<uint32_t>& activeSceneIds);
 
         uint32_t createNewSceneInternal(std::string sceneName, SceneType type, uint32_t previousSceneId);
+        void releaseSceneId(const SceneProject& sceneProject);
+        void markReferencedSceneIdsPersisted(EntityRegistry* registry);
+        bool clearEntityReferencesInScene(SceneProject& sceneProject, uint32_t sceneId);
+        void purgeReferencesToScene(uint32_t sceneId);
         std::vector<std::filesystem::path> findProjectFiles(const std::function<bool(const std::string&)>& matches) const;
         void openSceneInternal(fs::path filepath, uint32_t sceneToClose);
 
@@ -602,6 +608,7 @@ namespace doriax::editor{
         std::string getMaterialFilePath(uint32_t sceneId, Entity entity, unsigned int submeshIndex) const;
         void unlinkMaterialFile(uint32_t sceneId, Entity entity, unsigned int submeshIndex);
         void unlinkAllMaterialFiles(uint32_t sceneId, Entity entity);
+        void unlinkAllMaterialFiles(uint32_t sceneId);
 
         //=== end Linked Material part ===
 

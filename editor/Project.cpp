@@ -834,6 +834,95 @@ void editor::Project::unlinkAllMaterialFiles(uint32_t sceneId, Entity entity) {
     }
 }
 
+void editor::Project::unlinkAllMaterialFiles(uint32_t sceneId) {
+    for (auto it = materialFileLinks.begin(); it != materialFileLinks.end();) {
+        if (std::get<0>(it->first) == sceneId) {
+            it = materialFileLinks.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void editor::Project::markReferencedSceneIdsPersisted(EntityRegistry* registry) {
+    if (!registry) {
+        return;
+    }
+
+    auto scriptsArray = registry->getComponentArray<ScriptComponent>();
+    for (size_t i = 0; i < scriptsArray->size(); i++) {
+        ScriptComponent& scriptComponent = scriptsArray->getComponentFromIndex(i);
+        for (const auto& scriptEntry : scriptComponent.scripts) {
+            for (const auto& property : scriptEntry.properties) {
+                const EntityReference* ref = std::get_if<EntityReference>(&property.value);
+                if (!ref || ref->sceneId == NULL_PROJECT_SCENE) {
+                    continue;
+                }
+                if (SceneProject* referenced = getScene(ref->sceneId)) {
+                    referenced->transientId = false;
+                }
+            }
+        }
+    }
+}
+
+bool editor::Project::clearEntityReferencesInScene(SceneProject& sceneProject, uint32_t sceneId) {
+    if (!sceneProject.scene) {
+        return false;
+    }
+
+    bool changed = false;
+    auto scriptsArray = sceneProject.scene->getComponentArray<ScriptComponent>();
+    for (size_t i = 0; i < scriptsArray->size(); i++) {
+        ScriptComponent& scriptComponent = scriptsArray->getComponentFromIndex(i);
+        for (auto& scriptEntry : scriptComponent.scripts) {
+            for (auto& property : scriptEntry.properties) {
+                EntityReference* ref = std::get_if<EntityReference>(&property.value);
+                if (!ref || ref->sceneId != sceneId) {
+                    continue;
+                }
+                *ref = EntityReference{NULL_ENTITY, 0};
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+void editor::Project::purgeReferencesToScene(uint32_t sceneId) {
+    bool detached = false;
+
+    for (auto& sceneProject : scenes) {
+        if (sceneProject.id == sceneId) {
+            continue;
+        }
+
+        bool unlinkedChild = eraseChildSceneReference(sceneProject.childScenes, sceneId);
+        bool changed = clearEntityReferencesInScene(sceneProject, sceneId) || unlinkedChild;
+        detached = detached || unlinkedChild;
+
+        if (!changed) {
+            continue;
+        }
+
+        sceneProject.isModified = true;
+        if (sceneProject.scene) {
+            sceneProject.needUpdateRender = true;
+        }
+
+        // A redo would otherwise reconnect whatever scene inherits the id
+        CommandHandle::remove(sceneProject.id);
+
+        Out::warning("Scene '%s' referenced the discarded scene, references and history cleared", sceneProject.name.c_str());
+    }
+
+    if (detached) {
+        // Dropped an inline child, so the Engine layers need rebuilding.
+        editor::getEditorHost().resetLastActivatedScene();
+    }
+}
+
 void editor::Project::remapMaterialFilePath(const std::filesystem::path& oldPath, const std::filesystem::path& newPath) {
     if (projectPath.empty()) {
         return;
@@ -2487,7 +2576,7 @@ uint32_t editor::Project::createNewSceneInternal(std::string sceneName, SceneTyp
     uint32_t reusedSceneId = NULL_PROJECT_SCENE;
     if (previousSceneId != NULL_PROJECT_SCENE) {
         SceneProject* previousScene = getScene(previousSceneId);
-        if (previousScene && previousScene->filepath.empty()) {
+        if (previousScene && previousScene->transientId) {
             reusedSceneId = previousSceneId;
             closeScene(previousSceneId, true);
         }
@@ -2509,8 +2598,14 @@ uint32_t editor::Project::createNewSceneInternal(std::string sceneName, SceneTyp
     }
 
     SceneProject data;
-    data.id = reusedSceneId != NULL_PROJECT_SCENE ? reusedSceneId : ++nextSceneId;
+    if (reusedSceneId != NULL_PROJECT_SCENE) {
+        data.id = reusedSceneId;
+        nextSceneId = std::max(nextSceneId, reusedSceneId); // closeScene() may have released it
+    } else {
+        data.id = ++nextSceneId;
+    }
     data.name = sceneName;
+    data.transientId = true;
     data.scene = new Scene();
     data.sceneType = type;
     data.sceneRender = createSceneRender(data.sceneType, data.scene);
@@ -3102,6 +3197,9 @@ void editor::Project::loadScene(fs::path filepath, bool opened, bool isNewScene,
             }
         }
 
+        // Decoded ids can exceed the counter, keep it above every live id
+        nextSceneId = std::max(nextSceneId, targetScene->id);
+
         if (opened && !isNewScene) {
             removeMissingChildSceneReferences(*targetScene);
         }
@@ -3216,6 +3314,9 @@ void editor::Project::closeScene(uint32_t sceneId, bool systemClose) {
         }
     }
 
+    // Debounced writes still need the live scene to encode the material from
+    editor::getEditorHost().flushSceneMaterialWrites(sceneId);
+
     deleteSceneProject(&(*it));
 
     cleanupEntityBundlesForScene(sceneId);
@@ -3227,6 +3328,21 @@ void editor::Project::closeScene(uint32_t sceneId, bool systemClose) {
 
     // If the scene was never saved, remove it entirely
     if (it->filepath.empty()) {
+        // Nothing may stay keyed by an id that releaseSceneId() can hand out again
+        purgeReferencesToScene(it->id);
+        unlinkAllMaterialFiles(it->id);
+        CommandHandle::remove(it->id);
+
+        // setSelectedSceneId() early-outs on an unchanged id, so drop it here to let
+        // the replacement scene run through selection again
+        if (selectedScene == it->id) {
+            selectedScene = NULL_PROJECT_SCENE;
+        }
+        if (selectedSceneForProperties == it->id) {
+            selectedSceneForProperties = NULL_PROJECT_SCENE;
+        }
+
+        releaseSceneId(*it);
         scenes.erase(it);
     } else {
         it->opened = false;
@@ -4439,6 +4555,15 @@ bool editor::Project::saveSceneFile(SceneProject* sceneProject, const std::files
         fout << YAML::Dump(root);
         fout.close();
 
+        // Every id this file carries has reached disk and can no longer be reclaimed
+        sceneProject->transientId = false;
+        for (const ChildSceneRef& childSceneRef : sceneProject->childScenes) {
+            if (SceneProject* childScene = getScene(childSceneRef.id)) {
+                childScene->transientId = false;
+            }
+        }
+        markReferencedSceneIdsPersisted(sceneProject->scene);
+
         sceneProject->filepath = relPath;
         // Terrain map writes are asynchronous; when any failed to reach disk the
         // save is incomplete even though the scene YAML is written: keep the
@@ -5001,6 +5126,18 @@ editor::SceneProject* editor::Project::getSelectedScene(){
 
 const editor::SceneProject* editor::Project::getSelectedScene() const{
     return getScene(selectedScene);
+}
+
+// An id is reclaimable only while it has never reached disk, and only the last one
+// handed out can be taken back, older gaps stay as they are.
+void editor::Project::releaseSceneId(const SceneProject& sceneProject){
+    if (!sceneProject.transientId || sceneProject.id == NULL_PROJECT_SCENE){
+        return;
+    }
+
+    if (sceneProject.id == nextSceneId){
+        nextSceneId--;
+    }
 }
 
 void editor::Project::setNextSceneId(uint32_t nextSceneId){
@@ -5824,6 +5961,7 @@ void editor::Project::saveEntityBundleToDisk(const std::filesystem::path& filepa
             fout << YAML::Dump(encodedNode);
             fout.close();
             bundle->isModified = false;
+            markReferencedSceneIdsPersisted(bundle->registry.get());
         } else {
             Out::error("Failed to open file for writing: %s", fullBundlePath.string().c_str());
         }

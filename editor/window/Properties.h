@@ -203,6 +203,7 @@ namespace doriax::editor{
         // Dirty material helpers
         void markMaterialDirty(unsigned int sceneId, Entity entity, int submeshIndex, const std::string& relativePath);
         void flushDirtyMaterials(float deltaTime);
+        void writeDirtyMaterial(const DirtyMaterialEntry& entry);
         template<typename T>
         void drawScenePropertyRow(SceneProject* sceneProject, const std::string& propertyName, const char* label, ScenePropertyInputType inputType, float inputWidth = -1.0f, float minValue = 0.0f, float maxValue = 1.0f, const std::string& help = "");
 
@@ -419,6 +420,8 @@ namespace doriax::editor{
 
         void show();
         void stopTransientPreviews();
+        void clearSceneState(uint32_t sceneId);
+        void flushDirtyMaterialsForScene(uint32_t sceneId);
         void setOpen(bool open);
         bool isOpen() const;
         void focusNameInput();

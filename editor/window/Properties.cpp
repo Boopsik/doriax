@@ -374,6 +374,39 @@ void editor::Properties::markMaterialDirty(unsigned int sceneId, Entity entity, 
     dirtyMaterials.push_back({sceneId, entity, submeshIndex, relativePath, 0.0f});
 }
 
+void editor::Properties::writeDirtyMaterial(const DirtyMaterialEntry& entry) {
+    SceneProject* sp = project->getScene(entry.sceneId);
+    if (!sp || !sp->scene) {
+        return;
+    }
+
+    MeshComponent* mesh = sp->scene->findComponent<MeshComponent>(entry.entity);
+    if (!mesh || entry.submeshIndex >= mesh->numSubmeshes) {
+        return;
+    }
+
+    Material& material = mesh->submeshes[entry.submeshIndex].material;
+    std::filesystem::path absolutePath = project->getProjectPath() / entry.relativePath;
+
+    try {
+        std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
+        if (out.is_open()) {
+            std::string payload = YAML::Dump(Stream::encodeMaterial(material));
+            out.write(payload.c_str(), payload.size());
+            out.close();
+
+            project->linkMaterialFile(entry.sceneId, entry.entity, entry.submeshIndex, entry.relativePath);
+            project->refreshLinkedMaterials(true);
+
+            if (ResourcesWindow* resourcesWindow = Backend::getApp().getResourcesWindow()) {
+                resourcesWindow->notifyResourceFileChanged(absolutePath);
+            }
+        }
+    } catch (const std::exception& e) {
+        Out::error("Error saving linked material file '%s': %s", absolutePath.string().c_str(), e.what());
+    }
+}
+
 void editor::Properties::flushDirtyMaterials(float deltaTime) {
     if (dirtyMaterials.empty()) {
         return;
@@ -387,32 +420,22 @@ void editor::Properties::flushDirtyMaterials(float deltaTime) {
             continue;
         }
 
-        SceneProject* sp = project->getScene(it->sceneId);
-        if (sp) {
-            MeshComponent* mesh = sp->scene->findComponent<MeshComponent>(it->entity);
-            if (mesh && it->submeshIndex < mesh->numSubmeshes) {
-                Material& material = mesh->submeshes[it->submeshIndex].material;
-                std::filesystem::path absolutePath = project->getProjectPath() / it->relativePath;
+        writeDirtyMaterial(*it);
 
-                try {
-                    std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
-                    if (out.is_open()) {
-                        std::string payload = YAML::Dump(Stream::encodeMaterial(material));
-                        out.write(payload.c_str(), payload.size());
-                        out.close();
+        it = dirtyMaterials.erase(it);
+    }
+}
 
-                        project->linkMaterialFile(it->sceneId, it->entity, it->submeshIndex, it->relativePath);
-                        project->refreshLinkedMaterials(true);
-
-                        if (ResourcesWindow* resourcesWindow = Backend::getApp().getResourcesWindow()) {
-                            resourcesWindow->notifyResourceFileChanged(absolutePath);
-                        }
-                    }
-                } catch (const std::exception& e) {
-                    Out::error("Error saving linked material file '%s': %s", absolutePath.string().c_str(), e.what());
-                }
-            }
+// The scene is about to go away, so write its pending edits without waiting out the debounce
+void editor::Properties::flushDirtyMaterialsForScene(uint32_t sceneId) {
+    auto it = dirtyMaterials.begin();
+    while (it != dirtyMaterials.end()) {
+        if (it->sceneId != sceneId) {
+            ++it;
+            continue;
         }
+
+        writeDirtyMaterial(*it);
 
         it = dirtyMaterials.erase(it);
     }
@@ -830,6 +853,27 @@ void editor::Properties::focusNameInput(){
 void editor::Properties::stopTransientPreviews() {
     stopSoundPreview();
     stopActionPreviewIfActive();
+}
+
+void editor::Properties::clearSceneState(uint32_t sceneId) {
+    if (actionPreviewing && actionPreviewSceneId == sceneId) {
+        // The scene is already deleted, drop the snapshots instead of restoring them
+        actionPreviewStates.clear();
+        actionPreviewing = false;
+        actionPreviewPlaying = false;
+        actionPreviewEntity = NULL_ENTITY;
+        actionPreviewSceneId = 0;
+    }
+
+    if (soundPreviewRuntime.sceneId == sceneId) {
+        stopSoundPreview(true);
+    }
+
+    // Pending writes would otherwise be flushed against whatever scene takes the id
+    dirtyMaterials.erase(
+        std::remove_if(dirtyMaterials.begin(), dirtyMaterials.end(),
+            [sceneId](const DirtyMaterialEntry& entry){ return entry.sceneId == sceneId; }),
+        dirtyMaterials.end());
 }
 
 bool editor::Properties::isOpen() const{

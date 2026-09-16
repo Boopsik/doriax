@@ -45,6 +45,9 @@ void EditorHost::updateWindowTitle(const std::string&) {
 void EditorHost::stopTransientPreviews() {
 }
 
+void EditorHost::flushSceneMaterialWrites(uint32_t) {
+}
+
 void EditorHost::saveAllCodeEditors() {
 }
 

@@ -239,6 +239,7 @@ namespace doriax::editor{
         void requestDockspaceRebuild();
         void updateWindowTitle(const std::string& projectName) override;
         void stopTransientPreviews() override;
+        void flushSceneMaterialWrites(uint32_t sceneId) override;
         void saveAllCodeEditors() override;
         void requestScenePlayFocus(uint32_t sceneId) override;
 
