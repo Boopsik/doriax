@@ -4,6 +4,7 @@
 #include "Stream.h"
 #include "AppSettings.h"
 #include "EditorHost.h"
+#include "Out.h"
 #include "Workspace.h"
 
 #include "Base64.h"
@@ -2329,7 +2330,12 @@ void editor::Stream::decodeProject(Project* project, const YAML::Node& node, con
             // Absent or unreadable, the scene is one this checkout cannot show, and
             // remembering it stops a later save from taking it from everyone else.
             // loadScene() drops what it built, so scenes.back() is an earlier scene.
-            if (!fs::exists(scenePath) || !project->loadScene(scenePath, opened, true, opened)) {
+            if (!fs::exists(scenePath)) {
+                Out::warning("Scene file not found, keeping it listed in the project: %s", relStr.c_str());
+                project->addUnresolvedScene(position, relStr);
+                continue;
+            }
+            if (!project->loadScene(scenePath, opened, true, opened)) {
                 project->addUnresolvedScene(position, relStr);
                 continue;
             }
