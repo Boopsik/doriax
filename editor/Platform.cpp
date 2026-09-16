@@ -47,6 +47,10 @@ std::string editor::Platform::getShaderPath(){
     return (project->getProjectPath() / "shaders").string();
 }
 
+std::string editor::Platform::getUserDataPath(){
+    return project->getUserDataPath().string();
+}
+
 sg_environment editor::Platform::getSokolEnvironment(){
     #if defined(SOKOL_VULKAN) || defined(SOKOL_METAL)
     return Backend::getSokolEnvironment();

@@ -4,6 +4,7 @@
 #include "Stream.h"
 #include "AppSettings.h"
 #include "EditorHost.h"
+#include "Workspace.h"
 
 #include "Base64.h"
 #include "Catalog.h"
@@ -1660,12 +1661,146 @@ TileData editor::Stream::decodeTileData(const YAML::Node& node) {
     return tile;
 }
 
+YAML::Node editor::Stream::encodeTerrainEditorSettings(const TerrainEditorSettings& ts) {
+    YAML::Node terrainNode;
+    terrainNode["brushMode"] = terrainBrushModeToString(static_cast<TerrainBrushMode>(ts.brushMode));
+    terrainNode["brushShape"] = terrainBrushShapeToString(static_cast<TerrainBrushShape>(ts.brushShape));
+    terrainNode["brushFalloff"] = terrainBrushFalloffToString(static_cast<TerrainBrushFalloff>(ts.brushFalloff));
+    encodePositiveFinite(terrainNode, "brushSize", ts.brushSize);
+    encodeFinite(terrainNode, "brushStrength", ts.brushStrength);
+    encodeFinite(terrainNode, "brushRotation", ts.brushRotation);
+    terrainNode["brushMaskPath"] = ts.brushMaskPath;
+    encodeFinite(terrainNode, "flattenHeight", ts.flattenHeight);
+    terrainNode["terraceSteps"] = ts.terraceSteps;
+    encodePositiveFinite(terrainNode, "noiseSize", ts.noiseSize);
+    terrainNode["heightMapResolution"] = ts.heightMapResolution;
+    terrainNode["blendMapResolution"] = ts.blendMapResolution;
+    terrainNode["densityMapResolution"] = ts.densityMapResolution;
+    terrainNode["normalizeBlendPaint"] = ts.normalizeBlendPaint;
+    terrainNode["heightMapStartAtMiddle"] = ts.heightMapStartAtMiddle;
+    terrainNode["flattenPickOnStroke"] = ts.flattenPickOnStroke;
+    terrainNode["paintUseMask"] = ts.paintUseMask;
+    encodeFinite(terrainNode, "paintMinSlope", ts.paintMinSlope);
+    encodeFinite(terrainNode, "paintMaxSlope", ts.paintMaxSlope);
+    encodeFinite(terrainNode, "paintMinHeight", ts.paintMinHeight);
+    encodeFinite(terrainNode, "paintMaxHeight", ts.paintMaxHeight);
+    terrainNode["placeAssetPath"] = ts.placeAssetPath;
+    terrainNode["placeInstanced"] = ts.placeInstanced;
+    encodePositiveFinite(terrainNode, "placeSpacing", ts.placeSpacing);
+    encodePositiveFinite(terrainNode, "placeMinScale", ts.placeMinScale);
+    encodePositiveFinite(terrainNode, "placeMaxScale", ts.placeMaxScale);
+    encodeFinite(terrainNode, "placeRotationJitter", ts.placeRotationJitter);
+    encodeFinite(terrainNode, "placeAlignToNormal", ts.placeAlignToNormal);
+    return terrainNode;
+}
+
+editor::TerrainEditorSettings editor::Stream::decodeTerrainEditorSettings(const YAML::Node& tn) {
+    TerrainEditorSettings ts;
+    if (!tn.IsMap()) return ts;
+
+    if (tn["brushMode"].IsDefined())          ts.brushMode          = static_cast<int>(stringToTerrainBrushMode(tn["brushMode"].as<std::string>()));
+    if (tn["brushShape"].IsDefined())         ts.brushShape         = static_cast<int>(stringToTerrainBrushShape(tn["brushShape"].as<std::string>()));
+    if (tn["brushFalloff"].IsDefined())       ts.brushFalloff       = static_cast<int>(stringToTerrainBrushFalloff(tn["brushFalloff"].as<std::string>()));
+    if (tn["brushSize"].IsDefined())          ts.brushSize          = decodePositiveFinite(tn["brushSize"], ts.brushSize);
+    if (tn["brushStrength"].IsDefined())      ts.brushStrength      = decodeFinite(tn["brushStrength"], ts.brushStrength);
+    if (tn["brushRotation"].IsDefined())      ts.brushRotation      = decodeFinite(tn["brushRotation"], ts.brushRotation);
+    if (tn["brushMaskPath"].IsDefined())      ts.brushMaskPath      = tn["brushMaskPath"].as<std::string>();
+    if (tn["flattenHeight"].IsDefined())      ts.flattenHeight      = decodeFinite(tn["flattenHeight"], ts.flattenHeight);
+    if (tn["terraceSteps"].IsDefined())       ts.terraceSteps       = tn["terraceSteps"].as<int>();
+    if (tn["noiseSize"].IsDefined())          ts.noiseSize          = decodePositiveFinite(tn["noiseSize"], ts.noiseSize);
+    if (tn["heightMapResolution"].IsDefined()) ts.heightMapResolution = tn["heightMapResolution"].as<int>();
+    if (tn["blendMapResolution"].IsDefined()) ts.blendMapResolution = tn["blendMapResolution"].as<int>();
+    if (tn["densityMapResolution"].IsDefined()) ts.densityMapResolution = tn["densityMapResolution"].as<int>();
+    if (tn["normalizeBlendPaint"].IsDefined()) ts.normalizeBlendPaint = tn["normalizeBlendPaint"].as<bool>();
+    if (tn["heightMapStartAtMiddle"].IsDefined()) ts.heightMapStartAtMiddle = tn["heightMapStartAtMiddle"].as<bool>();
+    if (tn["flattenPickOnStroke"].IsDefined()) ts.flattenPickOnStroke = tn["flattenPickOnStroke"].as<bool>();
+    else ts.brushStrength = TerrainEditorSettings{}.brushStrength; // file predates time-based flow; old per-event strengths are far too weak under the new semantics
+    if (tn["paintUseMask"].IsDefined())       ts.paintUseMask       = tn["paintUseMask"].as<bool>();
+    if (tn["paintMinSlope"].IsDefined())      ts.paintMinSlope      = decodeFinite(tn["paintMinSlope"], ts.paintMinSlope);
+    if (tn["paintMaxSlope"].IsDefined())      ts.paintMaxSlope      = decodeFinite(tn["paintMaxSlope"], ts.paintMaxSlope);
+    if (tn["paintMinHeight"].IsDefined())     ts.paintMinHeight     = decodeFinite(tn["paintMinHeight"], ts.paintMinHeight);
+    if (tn["paintMaxHeight"].IsDefined())     ts.paintMaxHeight     = decodeFinite(tn["paintMaxHeight"], ts.paintMaxHeight);
+    if (tn["placeAssetPath"].IsDefined())     ts.placeAssetPath     = tn["placeAssetPath"].as<std::string>();
+    if (tn["placeInstanced"].IsDefined())     ts.placeInstanced     = tn["placeInstanced"].as<bool>();
+    if (tn["placeSpacing"].IsDefined())       ts.placeSpacing       = decodePositiveFinite(tn["placeSpacing"], ts.placeSpacing);
+    if (tn["placeMinScale"].IsDefined())      ts.placeMinScale      = decodePositiveFinite(tn["placeMinScale"], ts.placeMinScale);
+    if (tn["placeMaxScale"].IsDefined())      ts.placeMaxScale      = decodePositiveFinite(tn["placeMaxScale"], ts.placeMaxScale);
+    if (tn["placeRotationJitter"].IsDefined()) ts.placeRotationJitter = decodeFinite(tn["placeRotationJitter"], ts.placeRotationJitter);
+    if (tn["placeAlignToNormal"].IsDefined()) ts.placeAlignToNormal = decodeFinite(tn["placeAlignToNormal"], ts.placeAlignToNormal);
+    return ts;
+}
+
+namespace {
+
+// The per-scene view keys an older project.yaml carried
+const char* const sceneDisplayKeys[] = {
+    "showAllJoints", "showAllBones", "showAllBodies", "hideCameraView",
+    "hideLightIcons", "hideSoundIcons", "hideContainerGuides", "showOrigin",
+    "showGrid3D", "hideSelectionOutline", "disableFaceCulling", "showGrid2D",
+    "gridSpacing2D", "gridSpacing3D", "snapToGrid", "snapTile", "snapRotation",
+    "rotationSnapDegrees",
+};
+
+} // namespace
+
+bool editor::Stream::hasSceneDisplaySettings(const YAML::Node& node) {
+    if (!node.IsMap()) return false;
+    for (const char* key : sceneDisplayKeys) {
+        if (node[key]) return true;
+    }
+    return false;
+}
+
+YAML::Node editor::Stream::encodeSceneDisplaySettings(const SceneDisplaySettings& ds) {
+    YAML::Node sceneNode;
+    sceneNode["showAllJoints"]        = ds.showAllJoints;
+    sceneNode["showAllBones"]         = ds.showAllBones;
+    sceneNode["showAllBodies"]        = ds.showAllBodies;
+    sceneNode["hideCameraView"]       = ds.hideCameraView;
+    sceneNode["hideLightIcons"]       = ds.hideLightIcons;
+    sceneNode["hideSoundIcons"]       = ds.hideSoundIcons;
+    sceneNode["hideContainerGuides"]  = ds.hideContainerGuides;
+    sceneNode["showOrigin"]           = ds.showOrigin;
+    sceneNode["showGrid3D"]           = ds.showGrid3D;
+    sceneNode["hideSelectionOutline"] = ds.hideSelectionOutline;
+    sceneNode["disableFaceCulling"]   = ds.disableFaceCulling;
+    sceneNode["showGrid2D"]           = ds.showGrid2D;
+    encodePositiveFinite(sceneNode, "gridSpacing2D", ds.gridSpacing2D);
+    encodePositiveFinite(sceneNode, "gridSpacing3D", ds.gridSpacing3D);
+    sceneNode["snapToGrid"]           = ds.snapToGrid;
+    sceneNode["snapTile"]             = ds.snapTile;
+    sceneNode["snapRotation"]         = ds.snapRotation;
+    encodePositiveFinite(sceneNode, "rotationSnapDegrees", ds.rotationSnapDegrees);
+    return sceneNode;
+}
+
+void editor::Stream::decodeSceneDisplaySettings(const YAML::Node& node, SceneDisplaySettings& ds) {
+    if (!node.IsMap()) return;
+
+    if (node["showAllJoints"])        ds.showAllJoints        = node["showAllJoints"].as<bool>();
+    if (node["showAllBones"])         ds.showAllBones         = node["showAllBones"].as<bool>();
+    if (node["showAllBodies"])        ds.showAllBodies        = node["showAllBodies"].as<bool>();
+    if (node["hideCameraView"])       ds.hideCameraView       = node["hideCameraView"].as<bool>();
+    if (node["hideLightIcons"])       ds.hideLightIcons       = node["hideLightIcons"].as<bool>();
+    if (node["hideSoundIcons"])       ds.hideSoundIcons       = node["hideSoundIcons"].as<bool>();
+    if (node["hideContainerGuides"])  ds.hideContainerGuides  = node["hideContainerGuides"].as<bool>();
+    if (node["showOrigin"])           ds.showOrigin           = node["showOrigin"].as<bool>();
+    if (node["showGrid3D"])           ds.showGrid3D           = node["showGrid3D"].as<bool>();
+    if (node["hideSelectionOutline"]) ds.hideSelectionOutline = node["hideSelectionOutline"].as<bool>();
+    if (node["disableFaceCulling"])   ds.disableFaceCulling   = node["disableFaceCulling"].as<bool>();
+    if (node["showGrid2D"])           ds.showGrid2D           = node["showGrid2D"].as<bool>();
+    if (node["gridSpacing2D"])        ds.gridSpacing2D        = decodePositiveFinite(node["gridSpacing2D"], ds.gridSpacing2D);
+    if (node["gridSpacing3D"])        ds.gridSpacing3D        = decodePositiveFinite(node["gridSpacing3D"], ds.gridSpacing3D);
+    if (node["snapToGrid"])           ds.snapToGrid           = node["snapToGrid"].as<bool>();
+    if (node["snapTile"])             ds.snapTile             = node["snapTile"].as<bool>();
+    if (node["snapRotation"])         ds.snapRotation         = node["snapRotation"].as<bool>();
+    if (node["rotationSnapDegrees"])  ds.rotationSnapDegrees  = decodePositiveFinite(node["rotationSnapDegrees"], ds.rotationSnapDegrees);
+}
+
 YAML::Node editor::Stream::encodeProject(Project* project) {
     YAML::Node root;
 
     root["name"] = project->getName();
-    root["nextSceneId"] = project->getNextSceneId();
-    root["selectedScene"] = project->getSelectedSceneId();
 
     root["canvasWidth"] = project->getCanvasWidth();
     root["canvasHeight"] = project->getCanvasHeight();
@@ -1703,6 +1838,9 @@ YAML::Node editor::Stream::encodeProject(Project* project) {
     }
     if (project->shouldPackNativeResources() != Project::defaultPackNativeResources) {
         root["packNativeResources"] = project->shouldPackNativeResources();
+    }
+    if (project->hasVersionControlMetadata() != Project::defaultVersionControlMetadata) {
+        root["versionControlMetadata"] = project->hasVersionControlMetadata();
     }
 
     {
@@ -1859,121 +1997,68 @@ YAML::Node editor::Stream::encodeProject(Project* project) {
         root["standaloneBundles"] = bundlesNode;
     }
 
-    {
-        const TerrainEditorSettings& ts = project->getTerrainEditorSettings();
-        YAML::Node terrainNode;
-        terrainNode["brushMode"] = terrainBrushModeToString(static_cast<TerrainBrushMode>(ts.brushMode));
-        terrainNode["brushShape"] = terrainBrushShapeToString(static_cast<TerrainBrushShape>(ts.brushShape));
-        terrainNode["brushFalloff"] = terrainBrushFalloffToString(static_cast<TerrainBrushFalloff>(ts.brushFalloff));
-        encodePositiveFinite(terrainNode, "brushSize", ts.brushSize);
-        encodeFinite(terrainNode, "brushStrength", ts.brushStrength);
-        encodeFinite(terrainNode, "brushRotation", ts.brushRotation);
-        terrainNode["brushMaskPath"] = ts.brushMaskPath;
-        encodeFinite(terrainNode, "flattenHeight", ts.flattenHeight);
-        terrainNode["terraceSteps"] = ts.terraceSteps;
-        encodePositiveFinite(terrainNode, "noiseSize", ts.noiseSize);
-        terrainNode["heightMapResolution"] = ts.heightMapResolution;
-        terrainNode["blendMapResolution"] = ts.blendMapResolution;
-        terrainNode["densityMapResolution"] = ts.densityMapResolution;
-        terrainNode["normalizeBlendPaint"] = ts.normalizeBlendPaint;
-        terrainNode["heightMapStartAtMiddle"] = ts.heightMapStartAtMiddle;
-        terrainNode["flattenPickOnStroke"] = ts.flattenPickOnStroke;
-        terrainNode["paintUseMask"] = ts.paintUseMask;
-        encodeFinite(terrainNode, "paintMinSlope", ts.paintMinSlope);
-        encodeFinite(terrainNode, "paintMaxSlope", ts.paintMaxSlope);
-        encodeFinite(terrainNode, "paintMinHeight", ts.paintMinHeight);
-        encodeFinite(terrainNode, "paintMaxHeight", ts.paintMaxHeight);
-        terrainNode["placeAssetPath"] = ts.placeAssetPath;
-        terrainNode["placeInstanced"] = ts.placeInstanced;
-        encodePositiveFinite(terrainNode, "placeSpacing", ts.placeSpacing);
-        encodePositiveFinite(terrainNode, "placeMinScale", ts.placeMinScale);
-        encodePositiveFinite(terrainNode, "placeMaxScale", ts.placeMaxScale);
-        encodeFinite(terrainNode, "placeRotationJitter", ts.placeRotationJitter);
-        encodeFinite(terrainNode, "placeAlignToNormal", ts.placeAlignToNormal);
-        root["terrainEditor"] = terrainNode;
-    }
 
-    // Add tabs array
-    YAML::Node tabsNode;
-    for (const auto& tab : project->getTabs()) {
-        YAML::Node tabNode;
-        switch (tab.type) {
-            case TabType::SCENE:        tabNode["type"] = "scene"; break;
-            case TabType::CODE_EDITOR:  tabNode["type"] = "codeeditor"; break;
-            case TabType::IMAGE_VIEWER: tabNode["type"] = "imageviewer"; break;
-        }
-        tabNode["filepath"] = tab.filepath;
-        tabsNode.push_back(tabNode);
-    }
-    root["tabs"] = tabsNode;
-
-    // Add scenes array
+    // Only the list belongs to the project; which were open, where each camera sat
+    // and which guides were toggled live in the workspace
     YAML::Node scenesNode;
-    for (const auto& sceneProject : project->getScenes()) {
-        YAML::Node sceneNode;
-        if (!sceneProject.filepath.empty()) {
-            sceneNode["filepath"] = sceneProject.filepath.string();
-            sceneNode["showAllJoints"]        = sceneProject.displaySettings.showAllJoints;
-            sceneNode["showAllBones"]         = sceneProject.displaySettings.showAllBones;
-            sceneNode["showAllBodies"]        = sceneProject.displaySettings.showAllBodies;
-            sceneNode["hideCameraView"]       = sceneProject.displaySettings.hideCameraView;
-            sceneNode["hideLightIcons"]       = sceneProject.displaySettings.hideLightIcons;
-            sceneNode["hideSoundIcons"]       = sceneProject.displaySettings.hideSoundIcons;
-            sceneNode["hideContainerGuides"]  = sceneProject.displaySettings.hideContainerGuides;
-            sceneNode["showOrigin"]           = sceneProject.displaySettings.showOrigin;
-            sceneNode["showGrid3D"]           = sceneProject.displaySettings.showGrid3D;
-            sceneNode["hideSelectionOutline"] = sceneProject.displaySettings.hideSelectionOutline;
-            sceneNode["disableFaceCulling"]   = sceneProject.displaySettings.disableFaceCulling;
-            sceneNode["showGrid2D"]           = sceneProject.displaySettings.showGrid2D;
-            encodePositiveFinite(sceneNode, "gridSpacing2D", sceneProject.displaySettings.gridSpacing2D);
-            encodePositiveFinite(sceneNode, "gridSpacing3D", sceneProject.displaySettings.gridSpacing3D);
-            sceneNode["snapToGrid"]           = sceneProject.displaySettings.snapToGrid;
-            sceneNode["snapTile"]             = sceneProject.displaySettings.snapTile;
-            sceneNode["snapRotation"]         = sceneProject.displaySettings.snapRotation;
-            encodePositiveFinite(sceneNode, "rotationSnapDegrees", sceneProject.displaySettings.rotationSnapDegrees);
+    {
+        const auto& unresolved = project->getUnresolvedScenes();
+        size_t next = 0;
+        size_t position = 0;
 
-            if (sceneProject.sceneRender) {
-                Camera* editorCam = sceneProject.sceneRender->getCamera();
-                if (editorCam) {
-                    float zoom = 0.0f;
-                    float walkSpeedOffset = 0.0f;
-                    if (sceneProject.sceneType == SceneType::SCENE_2D || sceneProject.sceneType == SceneType::SCENE_UI) {
-                        zoom = static_cast<SceneRender2D*>(sceneProject.sceneRender)->getZoom();
-                    } else if (sceneProject.sceneType == SceneType::SCENE_3D) {
-                        walkSpeedOffset = static_cast<SceneRender3D*>(sceneProject.sceneRender)->getWalkSpeedOffset();
-                    }
-                    sceneNode["editorCamera"] = encodeEditorCamera(editorCam, zoom, walkSpeedOffset);
-                }
-            } else if (sceneProject.editorCameraState.IsDefined()) {
-                sceneNode["editorCamera"] = sceneProject.editorCameraState;
-            }
-
+        auto appendScene = [&scenesNode, &position](const std::string& filepath) {
+            YAML::Node sceneNode;
+            sceneNode["filepath"] = filepath;
             scenesNode.push_back(sceneNode);
+            position++;
+        };
+
+        // A scene this checkout could not load goes back where it was, so the list
+        // reads the same for whoever can. One since loaded is skipped, or the next
+        // load would build two scenes from one file.
+        auto isLoaded = [project](const fs::path& filepath) {
+            const fs::path normalized = filepath.lexically_normal();
+            for (const auto& sceneProject : project->getScenes()) {
+                if (!sceneProject.filepath.empty() && sceneProject.filepath.lexically_normal() == normalized) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        auto appendUnresolved = [&]() {
+            while (next < unresolved.size() && unresolved[next].first <= position) {
+                if (!isLoaded(unresolved[next].second)) {
+                    appendScene(unresolved[next].second.generic_string());
+                }
+                next++;
+            }
+        };
+
+        for (const auto& sceneProject : project->getScenes()) {
+            if (sceneProject.filepath.empty()) {
+                continue;
+            }
+            appendUnresolved();
+            appendScene(sceneProject.filepath.string());
         }
+        appendUnresolved();
     }
     root["scenes"] = scenesNode;
 
     return root;
 }
 
-void editor::Stream::decodeProject(Project* project, const YAML::Node& node) {
+void editor::Stream::decodeProject(Project* project, const YAML::Node& node, const Workspace& workspace) {
     if (!node.IsMap()) return;
 
     if (node["name"]) {
         project->setName(node["name"].as<std::string>());
     }
 
-    // Set nextSceneId if it exists in the node and is greater than current
-    if (node["nextSceneId"]) {
-        uint32_t nextId = node["nextSceneId"].as<uint32_t>();
-        if (nextId > project->getNextSceneId()) {
-            project->setNextSceneId(nextId);
-        }
-    }
-
-    if (node["selectedScene"]) {
-        project->setSelectedSceneId(node["selectedScene"].as<uint32_t>());
-    }
+    // "nextSceneId" is gone: a shared counter hands the same id to two branches.
+    // The selected scene is restored at the end, since every scene loadScene() opens
+    // selects itself and would overwrite a value applied here.
 
     if (node["canvasWidth"] && node["canvasHeight"]) {
         project->setCanvasSize(
@@ -2061,6 +2146,10 @@ void editor::Stream::decodeProject(Project* project, const YAML::Node& node) {
 
     if (node["packNativeResources"].IsDefined()) {
         project->setPackNativeResources(node["packNativeResources"].as<bool>());
+    }
+
+    if (node["versionControlMetadata"].IsDefined()) {
+        project->setVersionControlMetadata(node["versionControlMetadata"].as<bool>());
     }
 
     if (node["export"] && node["export"].IsMap()) {
@@ -2203,127 +2292,98 @@ void editor::Stream::decodeProject(Project* project, const YAML::Node& node) {
         project->setStandaloneBundles(std::move(bundlePaths));
     }
 
-    if (node["terrainEditor"] && node["terrainEditor"].IsMap()) {
-        const auto& tn = node["terrainEditor"];
-        TerrainEditorSettings ts;
-        if (tn["brushMode"].IsDefined())          ts.brushMode          = static_cast<int>(stringToTerrainBrushMode(tn["brushMode"].as<std::string>()));
-        if (tn["brushShape"].IsDefined())         ts.brushShape         = static_cast<int>(stringToTerrainBrushShape(tn["brushShape"].as<std::string>()));
-        if (tn["brushFalloff"].IsDefined())       ts.brushFalloff       = static_cast<int>(stringToTerrainBrushFalloff(tn["brushFalloff"].as<std::string>()));
-        if (tn["brushSize"].IsDefined())          ts.brushSize          = decodePositiveFinite(tn["brushSize"], ts.brushSize);
-        if (tn["brushStrength"].IsDefined())      ts.brushStrength      = decodeFinite(tn["brushStrength"], ts.brushStrength);
-        if (tn["brushRotation"].IsDefined())      ts.brushRotation      = decodeFinite(tn["brushRotation"], ts.brushRotation);
-        if (tn["brushMaskPath"].IsDefined())      ts.brushMaskPath      = tn["brushMaskPath"].as<std::string>();
-        if (tn["flattenHeight"].IsDefined())      ts.flattenHeight      = decodeFinite(tn["flattenHeight"], ts.flattenHeight);
-        if (tn["terraceSteps"].IsDefined())       ts.terraceSteps       = tn["terraceSteps"].as<int>();
-        if (tn["noiseSize"].IsDefined())          ts.noiseSize          = decodePositiveFinite(tn["noiseSize"], ts.noiseSize);
-        if (tn["heightMapResolution"].IsDefined()) ts.heightMapResolution = tn["heightMapResolution"].as<int>();
-        if (tn["blendMapResolution"].IsDefined()) ts.blendMapResolution = tn["blendMapResolution"].as<int>();
-        if (tn["densityMapResolution"].IsDefined()) ts.densityMapResolution = tn["densityMapResolution"].as<int>();
-        if (tn["normalizeBlendPaint"].IsDefined()) ts.normalizeBlendPaint = tn["normalizeBlendPaint"].as<bool>();
-        if (tn["heightMapStartAtMiddle"].IsDefined()) ts.heightMapStartAtMiddle = tn["heightMapStartAtMiddle"].as<bool>();
-        if (tn["flattenPickOnStroke"].IsDefined()) ts.flattenPickOnStroke = tn["flattenPickOnStroke"].as<bool>();
-        else ts.brushStrength = TerrainEditorSettings{}.brushStrength; // file predates time-based flow; old per-event strengths are far too weak under the new semantics
-        if (tn["paintUseMask"].IsDefined())       ts.paintUseMask       = tn["paintUseMask"].as<bool>();
-        if (tn["paintMinSlope"].IsDefined())      ts.paintMinSlope      = decodeFinite(tn["paintMinSlope"], ts.paintMinSlope);
-        if (tn["paintMaxSlope"].IsDefined())      ts.paintMaxSlope      = decodeFinite(tn["paintMaxSlope"], ts.paintMaxSlope);
-        if (tn["paintMinHeight"].IsDefined())     ts.paintMinHeight     = decodeFinite(tn["paintMinHeight"], ts.paintMinHeight);
-        if (tn["paintMaxHeight"].IsDefined())     ts.paintMaxHeight     = decodeFinite(tn["paintMaxHeight"], ts.paintMaxHeight);
-        if (tn["placeAssetPath"].IsDefined())     ts.placeAssetPath     = tn["placeAssetPath"].as<std::string>();
-        if (tn["placeInstanced"].IsDefined())     ts.placeInstanced     = tn["placeInstanced"].as<bool>();
-        if (tn["placeSpacing"].IsDefined())       ts.placeSpacing       = decodePositiveFinite(tn["placeSpacing"], ts.placeSpacing);
-        if (tn["placeMinScale"].IsDefined())      ts.placeMinScale      = decodePositiveFinite(tn["placeMinScale"], ts.placeMinScale);
-        if (tn["placeMaxScale"].IsDefined())      ts.placeMaxScale      = decodePositiveFinite(tn["placeMaxScale"], ts.placeMaxScale);
-        if (tn["placeRotationJitter"].IsDefined()) ts.placeRotationJitter = decodeFinite(tn["placeRotationJitter"], ts.placeRotationJitter);
-        if (tn["placeAlignToNormal"].IsDefined()) ts.placeAlignToNormal = decodeFinite(tn["placeAlignToNormal"], ts.placeAlignToNormal);
-        project->getTerrainEditorSettings() = ts;
+    if (workspace.hasTerrainEditorSettings()) {
+        project->getTerrainEditorSettings() = workspace.getTerrainEditorSettings();
     }
 
-    // Build set of scene filepaths that should be opened from tabs
+    // Which scenes are open is a per-user choice, so the tab list decides it. With no
+    // workspace yet, the first scene opens, as it does for a fresh clone.
     std::set<std::string> openedScenePaths;
-    bool hasTabs = node["tabs"] && node["tabs"].IsSequence();
-
+    const bool hasTabs = workspace.hasTabs();
     if (hasTabs) {
-        for (const auto& tabNode : node["tabs"]) {
-            std::string type = tabNode["type"] ? tabNode["type"].as<std::string>() : "";
-            std::string filepath = tabNode["filepath"] ? tabNode["filepath"].as<std::string>() : "";
-            if (type == "scene") {
-                openedScenePaths.insert(filepath);
-                project->addTab(TabType::SCENE, filepath);
-            } else if (type == "codeeditor") {
-                project->addTab(TabType::CODE_EDITOR, filepath);
-            } else if (type == "imageviewer") {
-                project->addTab(TabType::IMAGE_VIEWER, filepath);
+        for (const TabEntry& tab : workspace.getTabs()) {
+            if (tab.type == TabType::SCENE) {
+                openedScenePaths.insert(tab.filepath);
+            }
+            project->addTab(tab.type, tab.filepath);
+        }
+    }
+
+    bool isFirstScene = true;
+    size_t listPosition = 0;
+    if (node["scenes"]) {
+        for (const auto& sceneNode : node["scenes"]) {
+            if (!sceneNode["filepath"]) {
+                continue;
+            }
+
+            const std::string relStr = sceneNode["filepath"].as<std::string>();
+            const size_t position = listPosition++;
+            fs::path scenePath = relStr;
+            if (scenePath.is_relative()) {
+                scenePath = project->getProjectPath() / scenePath;
+            }
+
+            const bool opened = hasTabs ? openedScenePaths.count(relStr) > 0 : isFirstScene;
+
+            // Absent or unreadable, the scene is one this checkout cannot show, and
+            // remembering it stops a later save from taking it from everyone else.
+            // loadScene() drops what it built, so scenes.back() is an earlier scene.
+            if (!fs::exists(scenePath) || !project->loadScene(scenePath, opened, true, opened)) {
+                project->addUnresolvedScene(position, relStr);
+                continue;
+            }
+
+            // Only a scene that opened uses up the slot, or a checkout whose first
+            // scene is missing would start with nothing open
+            isFirstScene = false;
+
+            auto& scenes = project->getScenes();
+            if (scenes.empty()) {
+                continue;
+            }
+
+            const Workspace::SceneState* state = workspace.getSceneState(relStr);
+            if (!state) {
+                continue;
+            }
+
+            SceneProject& loadedScene = scenes.back();
+            if (state->hasDisplaySettings) {
+                loadedScene.displaySettings = state->displaySettings;
+            }
+            if (!state->editorCamera.IsDefined()) {
+                continue;
+            }
+
+            loadedScene.editorCameraState = YAML::Clone(state->editorCamera);
+            if (!loadedScene.sceneRender) {
+                continue;
+            }
+            Camera* editorCam = loadedScene.sceneRender->getCamera();
+            if (!editorCam) {
+                continue;
+            }
+
+            float zoom = 0.0f;
+            float walkSpeedOffset = 0.0f;
+            Stream::decodeEditorCamera(editorCam, state->editorCamera, zoom, walkSpeedOffset);
+            if ((loadedScene.sceneType == SceneType::SCENE_2D || loadedScene.sceneType == SceneType::SCENE_UI) && zoom > 0.0f) {
+                static_cast<SceneRender2D*>(loadedScene.sceneRender)->setZoom(zoom);
+            }
+            if (loadedScene.sceneType == SceneType::SCENE_3D) {
+                static_cast<SceneRender3D*>(loadedScene.sceneRender)->setWalkSpeedOffset(walkSpeedOffset);
             }
         }
     }
 
-    // Load scenes information
-    bool isFirstScene = true;
-    if (node["scenes"]) {
-        for (const auto& sceneNode : node["scenes"]) {
-            if (sceneNode["filepath"]) {
-                fs::path scenePath = sceneNode["filepath"].as<std::string>();
-                if (scenePath.is_relative()) {
-                    scenePath = project->getProjectPath() / scenePath;
-                }
-                bool opened;
-                if (hasTabs) {
-                    std::string relStr = sceneNode["filepath"].as<std::string>();
-                    opened = openedScenePaths.count(relStr) > 0;
-                } else {
-                    // No tabs: open first scene only
-                    opened = isFirstScene;
-                }
-                if (fs::exists(scenePath)) {
-                    project->loadScene(scenePath, opened, true, opened);
-
-                    // Restore display settings into the just-loaded scene
-                    auto& scenes = project->getScenes();
-                    if (!scenes.empty()) {
-                        SceneDisplaySettings& ds = scenes.back().displaySettings;
-                        if (sceneNode["showAllJoints"])        ds.showAllJoints        = sceneNode["showAllJoints"].as<bool>();
-                        if (sceneNode["showAllBones"])         ds.showAllBones         = sceneNode["showAllBones"].as<bool>();
-                        if (sceneNode["showAllBodies"])        ds.showAllBodies        = sceneNode["showAllBodies"].as<bool>();
-                        if (sceneNode["hideCameraView"])       ds.hideCameraView       = sceneNode["hideCameraView"].as<bool>();
-                        if (sceneNode["hideLightIcons"])       ds.hideLightIcons       = sceneNode["hideLightIcons"].as<bool>();
-                        if (sceneNode["hideSoundIcons"])       ds.hideSoundIcons       = sceneNode["hideSoundIcons"].as<bool>();
-                        if (sceneNode["hideContainerGuides"])  ds.hideContainerGuides  = sceneNode["hideContainerGuides"].as<bool>();
-
-                        if (sceneNode["showOrigin"])           ds.showOrigin           = sceneNode["showOrigin"].as<bool>();
-                        if (sceneNode["showGrid3D"])           ds.showGrid3D           = sceneNode["showGrid3D"].as<bool>();
-                        if (sceneNode["hideSelectionOutline"]) ds.hideSelectionOutline = sceneNode["hideSelectionOutline"].as<bool>();
-                        if (sceneNode["disableFaceCulling"])   ds.disableFaceCulling   = sceneNode["disableFaceCulling"].as<bool>();
-                        if (sceneNode["showGrid2D"])           ds.showGrid2D           = sceneNode["showGrid2D"].as<bool>();
-
-                        if (sceneNode["gridSpacing2D"])        ds.gridSpacing2D        = decodePositiveFinite(sceneNode["gridSpacing2D"], ds.gridSpacing2D);
-                        if (sceneNode["gridSpacing3D"])        ds.gridSpacing3D        = decodePositiveFinite(sceneNode["gridSpacing3D"], ds.gridSpacing3D);
-                        if (sceneNode["snapToGrid"])           ds.snapToGrid           = sceneNode["snapToGrid"].as<bool>();
-                        if (sceneNode["snapTile"])             ds.snapTile             = sceneNode["snapTile"].as<bool>();
-                        if (sceneNode["snapRotation"])         ds.snapRotation         = sceneNode["snapRotation"].as<bool>();
-                        if (sceneNode["rotationSnapDegrees"])  ds.rotationSnapDegrees  = decodePositiveFinite(sceneNode["rotationSnapDegrees"], ds.rotationSnapDegrees);
-
-                        if (sceneNode["editorCamera"]) {
-                            SceneProject& loadedScene = scenes.back();
-                            loadedScene.editorCameraState = YAML::Clone(sceneNode["editorCamera"]);
-                            if (loadedScene.sceneRender) {
-                                Camera* editorCam = loadedScene.sceneRender->getCamera();
-                                if (editorCam) {
-                                    float zoom = 0.0f;
-                                    float walkSpeedOffset = 0.0f;
-                                    Stream::decodeEditorCamera(editorCam, sceneNode["editorCamera"], zoom, walkSpeedOffset);
-                                    if ((loadedScene.sceneType == SceneType::SCENE_2D || loadedScene.sceneType == SceneType::SCENE_UI) && zoom > 0.0f) {
-                                        static_cast<SceneRender2D*>(loadedScene.sceneRender)->setZoom(zoom);
-                                    }
-                                    if (loadedScene.sceneType == SceneType::SCENE_3D) {
-                                        static_cast<SceneRender3D*>(loadedScene.sceneRender)->setWalkSpeedOffset(walkSpeedOffset);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                isFirstScene = false;
-            }
+    // Every scene has had its turn at selecting itself, so the saved choice goes back
+    // now. One naming a scene this checkout cannot open leaves the loop's standing.
+    if (workspace.hasSelectedScene()) {
+        const uint32_t savedSelection = workspace.getSelectedScene();
+        const SceneProject* saved = project->getScene(savedSelection);
+        if (saved && saved->opened) {
+            project->setSelectedSceneId(savedSelection);
         }
     }
 }

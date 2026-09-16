@@ -95,7 +95,8 @@ namespace doriax::editor{
         // Bumped on structural changes so the Structure window can cache its tree.
         uint64_t structureVersion = 0;
         bool isModified = false;
-        // True while the id has never reached disk, so it can be handed out again
+        // True while the id has never reached disk, so a scene replacing this one
+        // can take it over instead of drawing a new one
         bool transientId = false;
         bool isVisible = false;
         bool opened = true;
@@ -297,6 +298,7 @@ namespace doriax::editor{
         std::vector<std::filesystem::path> scriptDirs;  // extra C++ include and source roots
         int cxxStandard;  // C++ standard for Play and exported builds
         bool packNativeResources;
+        bool versionControlMetadata;
         ShaderOverrides shaderOverrides;
         SourceCodeExportSettings sourceCodeExportSettings;
         DesktopExportSettings desktopExportSettings;
@@ -312,9 +314,21 @@ namespace doriax::editor{
         uint32_t startSceneId;
         TerrainEditorSettings terrainEditorSettings;
 
-        uint32_t nextSceneId;
+        // True while project.yaml holds the only copy of this user's editor state
+        bool workspaceMigrationPending = false;
+
+        // True while the model describes what is on disk at projectPath.
+        // createTempProject() resets it and then points projectPath at the project it
+        // is about to open, so a non-empty projectPath alone does not imply it.
+        bool modelLoaded = false;
 
         std::vector<SceneProject> scenes;
+
+        // Scenes project.yaml lists that could not be loaded, the position they held
+        // in that list and the view state kept for them. They never become a
+        // SceneProject, so a save would otherwise drop them from the shared file.
+        std::vector<std::pair<size_t, std::filesystem::path>> unresolvedScenes;
+        std::map<std::string, YAML::Node> unresolvedSceneStates;
         std::vector<TabEntry> tabs;
 
         struct PlayRuntimeScene {
@@ -442,7 +456,14 @@ namespace doriax::editor{
         void collectStartActiveScenes(uint32_t sceneId, std::vector<uint32_t>& activeSceneIds);
 
         uint32_t createNewSceneInternal(std::string sceneName, SceneType type, uint32_t previousSceneId);
-        void releaseSceneId(const SceneProject& sceneProject);
+
+        // Restore the view state kept while a file was unreadable, put the scene back
+        // at its listed position, and roll back what a failed load built. Reordering
+        // invalidates pointers into scenes.
+        void applyRetainedSceneState(SceneProject& sceneProject);
+        void restoreUnresolvedScenePosition(const std::filesystem::path& filepath);
+        void discardHalfLoadedScene(SceneProject* sceneProject, bool appended);
+
         void markReferencedSceneIdsPersisted(EntityRegistry* registry);
         bool clearEntityReferencesInScene(SceneProject& sceneProject, uint32_t sceneId);
         void purgeReferencesToScene(uint32_t sceneId);
@@ -468,6 +489,7 @@ namespace doriax::editor{
         static constexpr const char* defaultAssetsDir = ".";
         static constexpr const char* defaultLuaDir = ".";
         static constexpr bool defaultPackNativeResources = false;
+        static constexpr bool defaultVersionControlMetadata = true;
         static constexpr int defaultCxxStandard = cxxStandards[0];
 
         Project();
@@ -547,6 +569,10 @@ namespace doriax::editor{
         void setPackNativeResources(bool enabled);
         bool shouldPackNativeResources() const;
 
+        void setVersionControlMetadata(bool enabled);
+
+        bool hasVersionControlMetadata() const;
+
         ShaderOverrides& getShaderOverrides();
         const ShaderOverrides& getShaderOverrides() const;
         SourceCodeExportSettings& getSourceCodeExportSettings();
@@ -592,10 +618,16 @@ namespace doriax::editor{
         bool createTempProject(std::string projectName, bool deleteIfExists = false);
         bool saveProjectToPath(const std::filesystem::path& path);
         void clearTrash();
+
+        // Keeps .gitignore and .gitattributes written, skipping either if it exists
+        // and was not generated here
+        bool writeVersionControlMetadata();
         void deleteSceneProject(SceneProject* sceneProject);
         void loadSceneProjectData(SceneProject* sceneProject, const YAML::Node& sceneNode);
         bool saveProject(bool userCalled = false, std::function<void()> callback = nullptr);
         bool saveProjectFile();
+        // Per-user editor state (.doriax/user/workspace.yaml), never project.yaml
+        bool saveWorkspaceFile();
 
         bool loadProject(const std::filesystem::path path, bool updateLastOpened = true);
 
@@ -638,7 +670,9 @@ namespace doriax::editor{
         void saveLastSelectedScene(std::function<void(bool)> callback = nullptr);
 
         uint32_t createNewScene(std::string sceneName, SceneType type);
-        void loadScene(fs::path filepath, bool opened, bool isNewScene = true, bool loadSceneData = true);
+        // False when the scene could not be read, which does not mean it is gone:
+        // the file may be unreadable only in this checkout
+        bool loadScene(fs::path filepath, bool opened, bool isNewScene = true, bool loadSceneData = true);
         void openScene(fs::path filepath, bool closePrevious = true);
         void closeScene(uint32_t sceneId, bool systemClose = false);
         void removeScene(uint32_t sceneId);
@@ -683,8 +717,10 @@ namespace doriax::editor{
         void removeTab(TabType type, const std::string& filepath);
         bool hasTab(TabType type, const std::string& filepath) const;
 
-        void setNextSceneId(uint32_t nextSceneId);
-        uint32_t getNextSceneId() const;
+        // Ids reach other developers through .scene files, startSceneId and
+        // childScenes, so they are drawn at random rather than from a counter two
+        // branches would advance to the same value
+        uint32_t allocateSceneId() const;
 
         void setSelectedSceneId(uint32_t selectedScene);
         uint32_t getSelectedSceneId() const;
@@ -696,6 +732,19 @@ namespace doriax::editor{
         bool isTempUnsavedProject() const;
         std::filesystem::path getProjectPath() const;
         std::filesystem::path getProjectInternalPath() const;
+
+        // Where Play mode sends the engine's data:// writes, created on demand, so a
+        // playtest does not dirty the working tree
+        std::filesystem::path getUserDataPath() const;
+
+        // A scene listed in project.yaml that this checkout could not load. Kept so
+        // saving does not remove a scene just because its file is absent here.
+        void addUnresolvedScene(size_t listPosition, const std::filesystem::path& filepath);
+        bool clearUnresolvedScene(const std::filesystem::path& filepath);
+        const std::vector<std::pair<size_t, std::filesystem::path>>& getUnresolvedScenes() const;
+
+        void setUnresolvedSceneStates(std::map<std::string, YAML::Node> states);
+        const std::map<std::string, YAML::Node>& getUnresolvedSceneStates() const;
 
         fs::path getTerrainMapsDir() const;
         fs::path getThumbsDir() const;

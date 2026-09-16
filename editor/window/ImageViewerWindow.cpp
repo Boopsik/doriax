@@ -118,7 +118,7 @@ void editor::ImageViewerWindow::openFile(const std::filesystem::path& path, bool
     loadImage(instance);
 
     project->addTab(TabType::IMAGE_VIEWER, key);
-    project->saveProjectFile();
+    project->saveWorkspaceFile();
     Backend::getApp().addImageViewerWindowToDock(instance.filepath, dockToCentral);
 }
 
@@ -133,7 +133,7 @@ void editor::ImageViewerWindow::closeFile(const std::filesystem::path& path) {
 
     if (project->hasTab(TabType::IMAGE_VIEWER, key)) {
         project->removeTab(TabType::IMAGE_VIEWER, key);
-        project->saveProjectFile();
+        project->saveWorkspaceFile();
     }
 }
 
@@ -173,7 +173,7 @@ bool editor::ImageViewerWindow::handleFileRename(
 
     project->removeTab(TabType::IMAGE_VIEWER, oldKey);
     project->addTab(TabType::IMAGE_VIEWER, newKey);
-    project->saveProjectFile();
+    project->saveWorkspaceFile();
     Backend::getApp().addImageViewerWindowToDock(std::filesystem::path(newKey));
     return true;
 }
@@ -406,6 +406,6 @@ void editor::ImageViewerWindow::show() {
     }
 
     if (tabsChanged) {
-        project->saveProjectFile();
+        project->saveWorkspaceFile();
     }
 }

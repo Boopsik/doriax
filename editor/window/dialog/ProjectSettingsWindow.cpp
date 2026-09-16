@@ -887,6 +887,7 @@ void ProjectSettingsWindow::open(Project* project) {
     }
 
     m_packNativeResources = project->shouldPackNativeResources();
+    m_versionControlMetadata = project->hasVersionControlMetadata();
 }
 
 void ProjectSettingsWindow::show() {
@@ -1058,6 +1059,14 @@ void ProjectSettingsWindow::drawGeneralSettings() {
                     ImGui::EndCombo();
                 }
             }
+
+            if (beginSettingsRow("Version Control Files", m_versionControlMetadata != Project::defaultVersionControlMetadata)) {
+                m_versionControlMetadata = Project::defaultVersionControlMetadata;
+            }
+            ImGui::Checkbox("##VersionControlMetadata", &m_versionControlMetadata);
+            endSettingsRow("Keep .gitignore and .gitattributes in the project up to date, so the editor's "
+                "working directory, this machine's build settings and each developer's own layout stay out "
+                "of the repository. A file the editor did not generate is never replaced.");
 
             ImGui::EndTable();
         }
@@ -1648,6 +1657,7 @@ bool ProjectSettingsWindow::applySettings() {
     }
 
     m_project->setPackNativeResources(m_packNativeResources);
+    m_project->setVersionControlMetadata(m_versionControlMetadata);
 
     return m_project->saveProjectFile();
 }

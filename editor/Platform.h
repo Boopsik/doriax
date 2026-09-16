@@ -27,6 +27,7 @@ namespace doriax::editor{
         std::string getAssetPath() override;
         std::string getLuaPath() override;
         std::string getShaderPath() override;
+        std::string getUserDataPath() override;
 
         sg_environment getSokolEnvironment() override;
         sg_swapchain getSokolSwapchain() override;

@@ -35,8 +35,9 @@ struct PanelVisibilitySettings {
     }
 };
 
-// Compiler paths and job count are machine-specific, so they are kept per project
-// here instead of in project.yaml.
+// Compiler paths and job count are machine-specific, so they live in the project's
+// own .doriax/user/build.yaml rather than in project.yaml, and travel with the
+// project when it moves.
 struct LocalBuildSettings {
     std::string cCompiler;
     std::string cxxCompiler;
@@ -103,9 +104,6 @@ private:
 public:
     static std::filesystem::path getExportTargetDir(const std::filesystem::path& projectFile, const std::string& mode);
     static bool setExportTargetDir(const std::filesystem::path& projectFile, const std::string& mode, const std::filesystem::path& targetDir);
-
-    // Re-keys the entries above and below when a project moves on disk.
-    static bool moveProjectLocalSettings(const std::filesystem::path& fromProjectFile, const std::filesystem::path& toProjectFile);
 
     static LocalBuildSettings getBuildSettings(const std::filesystem::path& projectFile);
     static bool setBuildSettings(const std::filesystem::path& projectFile, const LocalBuildSettings& value);

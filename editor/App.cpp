@@ -1261,7 +1261,7 @@ void editor::App::captureTabOrder() {
     // Persist a short moment after the last reorder so a drag results in one
     // write rather than one per frame while the tab slides past its neighbours.
     if (tabsOrderDirty && ImGui::GetTime() - tabsOrderChangeTime > 0.75) {
-        project.saveProjectFile();
+        project.saveWorkspaceFile();
         tabsOrderDirty = false;
     }
 }
@@ -2678,12 +2678,11 @@ void editor::App::exit() {
 }
 
 void editor::App::closeWindow(){
-    // Flush a still-pending tab reorder (debounced in captureTabOrder()) so it
-    // isn't lost when quitting right after dragging a tab.
-    if (tabsOrderDirty){
-        project.saveProjectFile();
-        tabsOrderDirty = false;
-    }
+    // A moved camera, a different selected scene and a changed terrain brush live
+    // only in the model until this runs, and nothing else asks for it. Also flushes
+    // a tab reorder still sitting in captureTabOrder()'s debounce.
+    project.saveWorkspaceFile();
+    tabsOrderDirty = false;
 
     // Stop all playing scenes before shutdown to properly cleanup script instances
     for (auto& sceneProject : project.getScenes()) {

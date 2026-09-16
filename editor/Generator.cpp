@@ -410,7 +410,21 @@ bool editor::Generator::runCommand(const std::string& command, const fs::path& w
     return commandRunner.run(command, workingDir);
 }
 
-std::string editor::Generator::getPlatformCMakeConfig(bool vsyncEnabled, const WindowSettings& windowSettings, const fs::path& assetsPath, const fs::path& luaPath) {
+// Relative to ${PROJECT_ROOT} so the generated CMakeLists.txt reads the same on every
+// checkout. A path configured outside the project has no such spelling.
+static std::string toProjectRootCMakePath(const fs::path& projectPath, const fs::path& target) {
+    std::error_code ec;
+    const fs::path relative = fs::relative(target, projectPath, ec);
+    if (ec || relative.empty() || *relative.begin() == "..") {
+        return target.generic_string();
+    }
+    if (relative == ".") {
+        return "${PROJECT_ROOT}";
+    }
+    return "${PROJECT_ROOT}/" + relative.generic_string();
+}
+
+std::string editor::Generator::getPlatformCMakeConfig(bool vsyncEnabled, const WindowSettings& windowSettings, const fs::path& projectPath, const fs::path& assetsPath, const fs::path& luaPath) {
     // The title crosses two quoting layers: the generated CMake string and the
     // C string literal passed to the platform backend. Escape both, matching the
     // exported-project configuration produced by Exporter.
@@ -439,10 +453,20 @@ std::string editor::Generator::getPlatformCMakeConfig(bool vsyncEnabled, const W
     content += "\n";
     content += "    add_definitions(\"-DWITH_MINIAUDIO\") # For SoLoud\n";
     content += "\n";
-    // Absolute paths for standalone runs outside the editor.
-    content += "    add_definitions(\"-DDORIAX_ASSET_PATH=\\\"" + assetsPath.generic_string() + "\\\"\")\n";
-    content += "    add_definitions(\"-DDORIAX_LUA_PATH=\\\"" + luaPath.generic_string() + "\\\"\")\n";
-    content += "    add_definitions(\"-DDORIAX_SHADER_PATH=\\\"" + App::getUserShaderCacheDir().generic_string() + "\\\"\")\n";
+    // Resolved from the project directory rather than written out absolute, so a
+    // teammate who clones elsewhere still finds the assets
+    content += "    add_definitions(\"-DDORIAX_ASSET_PATH=\\\"" + toProjectRootCMakePath(projectPath, assetsPath) + "\\\"\")\n";
+    content += "    add_definitions(\"-DDORIAX_LUA_PATH=\\\"" + toProjectRootCMakePath(projectPath, luaPath) + "\\\"\")\n";
+    content += "\n";
+    content += "    # The compiled shader cache sits in this user's cache directory and is named\n";
+    content += "    # after the engine version, so its path belongs to neither the project nor any\n";
+    content += "    # other machine. The editor writes it to ${INTERNAL_DIR}/LocalPaths.cmake, which\n";
+    content += "    # version control ignores; -DDORIAX_SHADER_PATH=<dir> overrides it.\n";
+    content += "    include(${INTERNAL_DIR}/LocalPaths.cmake OPTIONAL)\n";
+    content += "    if(NOT DORIAX_SHADER_PATH)\n";
+    content += "        message(FATAL_ERROR \"DORIAX_SHADER_PATH is not set and ${INTERNAL_DIR}/LocalPaths.cmake is missing. Open this project in Doriax Editor once to regenerate it, or configure with -DDORIAX_SHADER_PATH=<shader cache directory>.\")\n";
+    content += "    endif()\n";
+    content += "    add_definitions(\"-DDORIAX_SHADER_PATH=\\\"${DORIAX_SHADER_PATH}\\\"\")\n";
     content += "\n";
     content += "    list(APPEND PLATFORM_SOURCE\n";
     content += "        ${INTERNAL_DIR}/generated/main.cpp\n";
@@ -787,8 +811,6 @@ std::string editor::Generator::getEditorPluginAbiCheck() {
 }
 
 void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::path& projectInternalPath, std::string libName, const std::vector<SceneScriptSource>& scriptFiles, const std::vector<editor::SceneBuildInfo>& scenes, const std::vector<editor::BundleSceneInfo>& bundles, bool vsyncEnabled, const WindowSettings& windowSettings, const fs::path& assetsPath, const fs::path& luaPath, const std::vector<fs::path>& scriptDirs, int cxxStandard) {
-    const fs::path exePath = FileUtils::getExecutableDir();
-
     fs::path relativeInternalPath = fs::relative(projectInternalPath, projectPath);
     fs::path engineApiRelativePath = relativeInternalPath / "engine-api";
 
@@ -916,9 +938,6 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     cmakeContent += "set(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR})\n";
     cmakeContent += "set(INTERNAL_DIR ${PROJECT_ROOT}/.doriax)\n\n";
     cmakeContent += "# Doriax runtime API headers for this project come from ${INTERNAL_DIR}/engine-api.\n";
-    if (!FileUtils::isEngineDirEphemeral()) {
-        cmakeContent += "# Local engine API source used by this editor build: " + FileUtils::getEngineDir().generic_string() + "\n";
-    }
     cmakeContent += "# Full engine + editor source (including YAML serialization for *.scene/*.bundle/project.yaml): https://github.com/doriaxengine/doriax\n\n";
 
     cmakeContent += "set(DORIAX_API_DIR " + engineApiPathStr + ")\n\n";
@@ -959,7 +978,7 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     cmakeContent += "    set(CMAKE_MSVC_RUNTIME_LIBRARY \"" + runtimeLibrary + "\")\n";
     cmakeContent += "endif()\n\n";
 
-    cmakeContent += getPlatformCMakeConfig(vsyncEnabled, windowSettings, assetsPath, luaPath) + "\n";
+    cmakeContent += getPlatformCMakeConfig(vsyncEnabled, windowSettings, projectPath, assetsPath, luaPath) + "\n";
 
     cmakeContent += scriptSources + "\n";
     cmakeContent += factorySources + "\n";
@@ -1018,9 +1037,11 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     cmakeContent += "    " + engineApiPathStr + "/core/util\n";
     cmakeContent += ")\n\n";
 
-    cmakeContent += "# libdoriax is searched in DORIAX_LIB_DIR; by default it points to the Doriax editor executable directory.\n";
+    cmakeContent += "# libdoriax is searched in DORIAX_LIB_DIR; by default it points to the Doriax editor\n";
+    cmakeContent += "# executable directory, which differs per machine and so comes from LocalPaths.cmake.\n";
+    cmakeContent += "include(${INTERNAL_DIR}/LocalPaths.cmake OPTIONAL)\n";
     cmakeContent += "if(NOT DEFINED DORIAX_LIB_DIR OR DORIAX_LIB_DIR STREQUAL \"\")\n";
-    cmakeContent += "    set(DORIAX_LIB_DIR \"" + exePath.generic_string() + "\")\n";
+    cmakeContent += "    set(DORIAX_LIB_DIR \"${DORIAX_DEFAULT_LIB_DIR}\")\n";
     cmakeContent += "    # Default target is the editor's own engine build (shared, editor layouts).\n";
     cmakeContent += "    # Match its macros so symbols link (DORIAX_SHARED -> dllimport on MSVC) and\n";
     cmakeContent += "    # data layouts stay ABI-compatible (DORIAX_EDITOR), avoiding ODR/ABI mismatch.\n";
@@ -1129,7 +1150,25 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     const fs::path cmakeFile = projectPath / "CMakeLists.txt";
     const fs::path sourceFile = projectInternalPath / "scene_scripts.cpp";
 
+    // Everything that would otherwise name this machine in CMakeLists.txt, so that
+    // file is byte-identical for the whole team
+    std::string localPathsContent;
+    localPathsContent += "# This file is auto-generated by Doriax Editor. Do not edit manually.\n";
+    localPathsContent += "# Paths that belong to this machine only, so that CMakeLists.txt does not have\n";
+    localPathsContent += "# to. Version control ignores .doriax/; the editor rewrites this on every build.\n\n";
+    localPathsContent += "if(NOT DORIAX_SHADER_PATH)\n";
+    localPathsContent += "    set(DORIAX_SHADER_PATH \"" + App::getUserShaderCacheDir().generic_string() + "\")\n";
+    localPathsContent += "endif()\n\n";
+    localPathsContent += "# Where libdoriax sits on this machine: the directory of the editor that wrote\n";
+    localPathsContent += "# this file. -DDORIAX_LIB_DIR=<dir> overrides it.\n";
+    localPathsContent += "set(DORIAX_DEFAULT_LIB_DIR \"" + FileUtils::getExecutableDir().generic_string() + "\")\n";
+    if (!FileUtils::isEngineDirEphemeral()) {
+        localPathsContent += "\n# Engine API source this editor build was compiled from, recorded for tooling.\n";
+        localPathsContent += "set(DORIAX_LOCAL_ENGINE_DIR \"" + FileUtils::getEngineDir().generic_string() + "\")\n";
+    }
+
     FileUtils::writeIfChanged(cmakeFile, cmakeContent);
+    FileUtils::writeIfChanged(projectInternalPath / "LocalPaths.cmake", localPathsContent);
     FileUtils::writeIfChanged(sourceFile, sourceContent);
 
     // Generate .vscode/settings.json for VS Code if it doesn't exist
@@ -1156,9 +1195,6 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     agentsContent += "This project was generated by Doriax Editor version `" DORIAX_EDITOR_VERSION "`.\n\n";
     agentsContent += "## Source references\n\n";
     agentsContent += "- Runtime API headers used by this project (snapshot): `" + engineApiRelativePath.generic_string() + "`\n";
-    if (!FileUtils::isEngineDirEphemeral()) {
-        agentsContent += "- Local engine API source used by this editor build: `" + FileUtils::getEngineDir().generic_string() + "`\n";
-    }
     agentsContent += "- Full engine **and editor** source (upstream): https://github.com/doriaxengine/doriax\n\n";
     agentsContent += "Use the local API snapshot first for runtime API details. For upstream source, use the tag or commit matching the editor version above; do not assume the latest upstream code matches this project. If the version is unknown or cannot be matched, report that limitation before relying on upstream behavior.\n\n";
     agentsContent += "The local paths above contain only the runtime engine API (what user code links against).\n";
@@ -1166,9 +1202,18 @@ void editor::Generator::writeSourceFiles(const fs::path& projectPath, const fs::
     agentsContent += "## Generated files\n\n";
     agentsContent += "These files are produced by the editor when a scene is played/run and are intended for **local development and testing**. Project export/distribution uses a separate pipeline and does not reuse these files. Do not edit them manually — they will be overwritten on the next generation:\n\n";
     agentsContent += "- `CMakeLists.txt` (project root)\n";
+    agentsContent += "- `" + relativeInternalPath.generic_string() + "/LocalPaths.cmake` (paths belonging to this machine, included by `CMakeLists.txt`)\n";
     agentsContent += "- `" + relativeInternalPath.generic_string() + "/scene_scripts.cpp`\n";
     agentsContent += "- `" + relativeInternalPath.generic_string() + "/generated/` (scene factories, bundle factories, `main.cpp`)\n";
     agentsContent += "- `" + engineApiRelativePath.generic_string() + "/` (engine API snapshot copied from the editor)\n\n";
+
+    agentsContent += "## Version control\n\n";
+    agentsContent += "`project.yaml`, `*.scene`, `*.bundle`, `ProjectBuild.cmake`, `AGENTS.md` and the assets describe the game and are meant to be committed. "
+                     "Everything under `" + relativeInternalPath.generic_string() + "/` is not: it holds the engine API snapshot and generated C++, the build settings for this machine "
+                     "(`user/build.yaml`), this developer's editor layout and viewport cameras (`user/workspace.yaml`), and whatever the game writes through `data://` during Play (`user/rundata/`). "
+                     "The editor regenerates all of it when the project is opened or built.\n\n";
+    agentsContent += "`CMakeLists.txt` is regenerated too and is ignored for the same reason. It contains no machine-specific path: asset and Lua roots resolve from `${PROJECT_ROOT}`, and the shader cache comes from `LocalPaths.cmake`.\n\n";
+    agentsContent += "Do not move per-user or per-machine values into `project.yaml`; a value that differs between two developers working on the same project belongs in `" + relativeInternalPath.generic_string() + "/user/`.\n\n";
     agentsContent += "## Custom build settings\n\n";
     agentsContent += "`CMakeLists.txt` is regenerated on every build, so edits to it are lost. Put your own build settings in `ProjectBuild.cmake` at the project root instead: the editor never writes that file, and both the editor and exported builds include it when it exists.\n\n";
     agentsContent += "Use `${DORIAX_TARGET}` instead of the literal target name, which differs between the two builds. `${DORIAX_SCRIPTS_DIR}` is the root your `.h`/`.cpp` paths are relative to.\n\n";

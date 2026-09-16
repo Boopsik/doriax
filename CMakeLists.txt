@@ -519,6 +519,7 @@ set(DORIAX_EDITOR_SOURCES
     ${EDITOR_DIR}/EditorHost.cpp
     ${EDITOR_DIR}/Generator.cpp
     ${EDITOR_DIR}/Stream.cpp
+    ${EDITOR_DIR}/Workspace.cpp
     ${EDITOR_DIR}/Exporter.cpp
 
     ${EDITOR_DIR}/ai/AiPathUtils.cpp

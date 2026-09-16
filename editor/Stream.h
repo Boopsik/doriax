@@ -17,6 +17,8 @@
 #include <unordered_set>
 
 namespace doriax::editor {
+    class Workspace;
+
     class Stream {
     private:
 
@@ -208,7 +210,22 @@ namespace doriax::editor {
         static TextureWrap stringToTextureWrap(const std::string& str);
 
         static YAML::Node encodeProject(Project* project);
-        static void decodeProject(Project* project, const YAML::Node& node);
+        // The workspace supplies the per-user half of the project (tabs, cameras,
+        // viewport toggles); project.yaml no longer carries it. See Workspace.h.
+        static void decodeProject(Project* project, const YAML::Node& node, const Workspace& workspace);
+
+        // Per-user state, written to .doriax/user/workspace.yaml. Kept here so the
+        // reader that still accepts them from an old project.yaml and the writer
+        // that produces the workspace file share one schema.
+        static YAML::Node encodeTerrainEditorSettings(const TerrainEditorSettings& settings);
+        static TerrainEditorSettings decodeTerrainEditorSettings(const YAML::Node& node);
+
+        static YAML::Node encodeSceneDisplaySettings(const SceneDisplaySettings& settings);
+        static void decodeSceneDisplaySettings(const YAML::Node& node, SceneDisplaySettings& settings);
+
+        // True when a project.yaml scene entry still carries view keys, which is what
+        // separates a pre-split file from one that only lists the scene.
+        static bool hasSceneDisplaySettings(const YAML::Node& node);
 
         static YAML::Node encodeSceneProject(const Project* project, const SceneProject* sceneProject);
         static void decodeSceneProject(SceneProject* sceneProject, const YAML::Node& node, bool loadScene);

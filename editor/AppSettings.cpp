@@ -647,71 +647,134 @@ void AppSettings::setAiSettings(const ai::Settings& settings) {
 
 namespace doriax::editor {
 
+namespace {
+
+// Compiler kit, job count and export destinations describe one machine, so they sit
+// with the project's other per-checkout state. Keyed by absolute path in the
+// editor-wide settings.yaml they broke as soon as the project moved.
+std::filesystem::path localSettingsFile(const std::filesystem::path& projectFile) {
+    const std::filesystem::path projectDir = projectFile.has_filename() && projectFile.filename() == "project.yaml"
+        ? projectFile.parent_path()
+        : projectFile;
+    return projectDir / ".doriax" / "user" / "build.yaml";
+}
+
+std::string legacyProjectKey(const std::filesystem::path& projectFile) {
+    return std::filesystem::absolute(projectFile).lexically_normal().generic_string();
+}
+
+YAML::Node loadLocalSettings(const std::filesystem::path& projectFile) {
+    const std::filesystem::path file = localSettingsFile(projectFile);
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec)) {
+        return YAML::Node();
+    }
+    try {
+        YAML::Node node = YAML::LoadFile(file.string());
+        return node.IsMap() ? node : YAML::Node();
+    } catch (const std::exception& e) {
+        Out::warning("Ignoring unreadable local build settings \"%s\": %s", file.string().c_str(), e.what());
+        return YAML::Node();
+    }
+}
+
+bool storeLocalSettings(const std::filesystem::path& projectFile, const YAML::Node& node) {
+    const std::filesystem::path file = localSettingsFile(projectFile);
+    std::error_code ec;
+    std::filesystem::create_directories(file.parent_path(), ec);
+    if (ec) {
+        Out::error("Failed to create local settings directory: %s", ec.message().c_str());
+        return false;
+    }
+
+    std::ofstream fout(file.string());
+    if (!fout) {
+        Out::error("Failed to open local build settings for writing: %s", file.string().c_str());
+        return false;
+    }
+    fout << "# Build configuration for this machine only. Version control ignores .doriax/.\n";
+    fout << YAML::Dump(node) << "\n";
+    fout.close();
+    if (!fout) {
+        Out::error("Failed to write local build settings: %s", file.string().c_str());
+        return false;
+    }
+    return true;
+}
+
+// One-shot move of the entries an earlier editor wrote into settings.yaml, which is
+// left alone since an older editor sharing this machine still reads it.
+YAML::Node migrateLegacySection(const std::filesystem::path& projectFile, YAML::Node& local,
+                                const YAML::Node& editorSettings, const char* section, const char* localKey) {
+    if (local[localKey]) {
+        return local[localKey];
+    }
+    const YAML::Node root = editorSettings[section];
+    if (!root || !root.IsMap()) {
+        return YAML::Node();
+    }
+    const YAML::Node entry = root[legacyProjectKey(projectFile)];
+    if (!entry || !entry.IsMap()) {
+        return YAML::Node();
+    }
+    local[localKey] = YAML::Clone(entry);
+    storeLocalSettings(projectFile, local);
+    return local[localKey];
+}
+
+} // namespace
+
 std::filesystem::path AppSettings::getExportTargetDir(const std::filesystem::path& projectFile, const std::string& mode) {
-    const auto key = std::filesystem::absolute(projectFile).lexically_normal().generic_string();
-    const YAML::Node data = settingsData;
-    const auto exports = data["project_exports"];
+    YAML::Node local = loadLocalSettings(projectFile);
+    const YAML::Node exports = migrateLegacySection(projectFile, local, settingsData, "project_exports", "exports");
     if (!exports || !exports.IsMap()) return {};
-    const auto project = exports[key];
-    if (!project || !project.IsMap()) return {};
-    const auto entry = project[mode];
+    const YAML::Node entry = exports[mode];
     if (!entry || !entry.IsMap()) return {};
-    if (entry["targetDir"]) return entry["targetDir"].as<std::string>();
-    return {};
+    if (!entry["targetDir"]) return {};
+
+    // The editor regenerates this file, so a value that will not convert falls back
+    // to the default instead of throwing out of whichever dialog asked
+    try {
+        return std::filesystem::path(entry["targetDir"].as<std::string>());
+    } catch (const std::exception& e) {
+        Out::warning("Ignoring an export directory in \"%s\": %s", localSettingsFile(projectFile).string().c_str(), e.what());
+        return {};
+    }
 }
 
 bool AppSettings::setExportTargetDir(const std::filesystem::path& projectFile, const std::string& mode, const std::filesystem::path& targetDir) {
     if (getExportTargetDir(projectFile, mode) == targetDir) return true;
-    const auto key = std::filesystem::absolute(projectFile).lexically_normal().generic_string();
-    YAML::Node backup = YAML::Clone(settingsData);
+
+    YAML::Node local = loadLocalSettings(projectFile);
     if (!targetDir.empty()) {
         YAML::Node entry(YAML::NodeType::Map);
         entry["targetDir"] = targetDir.generic_string();
-        settingsData["project_exports"][key][mode] = entry;
-    } else {
-        settingsData["project_exports"][key].remove(mode);
-        if (!settingsData["project_exports"][key].size()) settingsData["project_exports"].remove(key);
-        if (!settingsData["project_exports"].size()) settingsData.remove("project_exports");
+        local["exports"][mode] = entry;
+    } else if (local["exports"]) {
+        local["exports"].remove(mode);
+        if (!local["exports"].size()) local.remove("exports");
     }
-    if (saveSettings()) return true;
-    settingsData = backup;
-    return false;
-}
-
-bool AppSettings::moveProjectLocalSettings(const std::filesystem::path& fromProjectFile, const std::filesystem::path& toProjectFile) {
-    const auto fromKey = std::filesystem::absolute(fromProjectFile).lexically_normal().generic_string();
-    const auto toKey = std::filesystem::absolute(toProjectFile).lexically_normal().generic_string();
-    if (fromKey == toKey) return true;
-
-    bool moved = false;
-    for (const char* section : {"project_builds", "project_exports"}) {
-        YAML::Node root = settingsData[section];
-        if (!root || !root.IsMap() || !root[fromKey]) continue;
-
-        root[toKey] = YAML::Clone(root[fromKey]);
-        root.remove(fromKey);
-        moved = true;
-    }
-
-    if (!moved) return true;
-
-    // No rollback here: the project already moved, so restoring the old key would
-    // point this session at settings it can no longer reach.
-    return saveSettings();
+    return storeLocalSettings(projectFile, local);
 }
 
 LocalBuildSettings AppSettings::getBuildSettings(const std::filesystem::path& projectFile) {
     LocalBuildSettings result;
-    const auto key = std::filesystem::absolute(projectFile).lexically_normal().generic_string();
-    const auto builds = settingsData["project_builds"];
-    if (!builds || !builds.IsMap()) return result;
-    const auto entry = builds[key];
+    YAML::Node local = loadLocalSettings(projectFile);
+    const YAML::Node entry = migrateLegacySection(projectFile, local, settingsData, "project_builds", "build");
     if (!entry || !entry.IsMap()) return result;
-    if (entry["c_compiler"]) result.cCompiler = entry["c_compiler"].as<std::string>();
-    if (entry["cxx_compiler"]) result.cxxCompiler = entry["cxx_compiler"].as<std::string>();
-    if (entry["generator"]) result.generator = entry["generator"].as<std::string>();
-    if (entry["build_jobs"]) result.buildJobs = entry["build_jobs"].as<unsigned int>();
-    result.configured = true;
+
+    try {
+        if (entry["c_compiler"]) result.cCompiler = entry["c_compiler"].as<std::string>();
+        if (entry["cxx_compiler"]) result.cxxCompiler = entry["cxx_compiler"].as<std::string>();
+        if (entry["generator"]) result.generator = entry["generator"].as<std::string>();
+        if (entry["build_jobs"]) result.buildJobs = entry["build_jobs"].as<unsigned int>();
+        result.configured = true;
+    } catch (const std::exception& e) {
+        // A value that will not convert falls back to the default toolchain
+        Out::warning("Ignoring a build setting in \"%s\": %s", localSettingsFile(projectFile).string().c_str(), e.what());
+        return LocalBuildSettings();
+    }
+
     return result;
 }
 
@@ -723,20 +786,16 @@ bool AppSettings::setBuildSettings(const std::filesystem::path& projectFile, con
         return true;
     }
 
-    const auto key = std::filesystem::absolute(projectFile).lexically_normal().generic_string();
-    YAML::Node backup = YAML::Clone(settingsData);
-
     // Written even when empty: that entry pins the project to the default toolchain
     YAML::Node entry(YAML::NodeType::Map);
     if (!value.cCompiler.empty()) entry["c_compiler"] = value.cCompiler;
     if (!value.cxxCompiler.empty()) entry["cxx_compiler"] = value.cxxCompiler;
     if (!value.generator.empty()) entry["generator"] = value.generator;
     if (value.buildJobs) entry["build_jobs"] = value.buildJobs;
-    settingsData["project_builds"][key] = entry;
 
-    if (saveSettings()) return true;
-    settingsData = backup;
-    return false;
+    YAML::Node local = loadLocalSettings(projectFile);
+    local["build"] = entry;
+    return storeLocalSettings(projectFile, local);
 }
 
 } // namespace doriax::editor

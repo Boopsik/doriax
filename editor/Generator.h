@@ -104,7 +104,7 @@ namespace doriax::editor {
         // Returns false (with a logged error) if the cache could not be removed,
         // usually because another program holds a lock on the build directory.
         bool cleanBuildDirectory(const fs::path& buildPath);
-        std::string getPlatformCMakeConfig(bool vsyncEnabled, const WindowSettings& windowSettings, const fs::path& assetsPath, const fs::path& luaPath);
+        std::string getPlatformCMakeConfig(bool vsyncEnabled, const WindowSettings& windowSettings, const fs::path& projectPath, const fs::path& assetsPath, const fs::path& luaPath);
         std::string buildInitSceneScriptsSource(const std::vector<SceneScriptSource>& scriptFiles);
         std::string buildCleanupSceneScriptsSource(const std::vector<SceneScriptSource>& scriptFiles);
 

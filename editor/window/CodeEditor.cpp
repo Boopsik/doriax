@@ -1373,7 +1373,7 @@ void editor::CodeEditor::openFile(const std::string& filepath, bool dockToCentra
     }
 
     project->addTab(TabType::CODE_EDITOR, key);
-    project->saveProjectFile();
+    project->saveWorkspaceFile();
 
     Backend::getApp().addNewCodeWindowToDock(instance.filepath, dockToCentral);
 
@@ -1388,7 +1388,7 @@ void editor::CodeEditor::closeFile(const std::string& filepath) {
         }
 
         project->removeTab(TabType::CODE_EDITOR, key);
-        project->saveProjectFile();
+        project->saveWorkspaceFile();
 
         editors.erase(it);
     }
@@ -1470,7 +1470,7 @@ bool editor::CodeEditor::handleFileRename(const fs::path& oldPath, const fs::pat
 
     project->removeTab(TabType::CODE_EDITOR, oldKey);
     project->addTab(TabType::CODE_EDITOR, newKey);
-    project->saveProjectFile();
+    project->saveWorkspaceFile();
 
     Backend::getApp().addNewCodeWindowToDock(fs::path(newKey));
 
@@ -1572,7 +1572,7 @@ void editor::CodeEditor::show() {
                 lastFocused = nullptr;
             }
             project->removeTab(TabType::CODE_EDITOR, instance.filepath.string());
-            project->saveProjectFile();
+            project->saveWorkspaceFile();
             it = editors.erase(it);
             continue;
         }
@@ -1594,7 +1594,7 @@ void editor::CodeEditor::show() {
             }
             if (lastFocused == &fit->second) lastFocused = nullptr;
             project->removeTab(TabType::CODE_EDITOR, fit->second.filepath.string());
-            project->saveProjectFile();
+            project->saveWorkspaceFile();
             editors.erase(fit);
         };
 

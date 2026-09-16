@@ -49,6 +49,7 @@ namespace doriax::editor {
         std::vector<fs::path> m_scriptDirs;
         int m_cxxStandardIndex = 0;
         bool m_packNativeResources = false;
+        bool m_versionControlMetadata = true;
         char m_webApplicationNameBuffer[256] = {0};
         fs::path m_webFavicon;
         fs::path m_webCustomHtmlShell;

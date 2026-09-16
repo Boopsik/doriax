@@ -2083,7 +2083,7 @@ void editor::SceneWindow::show() {
                             ImGui::Text("%s", name);
                             ImGui::TableSetColumnIndex(1);
                             if (ImGui::Checkbox((std::string("##") + name).c_str(), &value)) {
-                                project->saveProjectFile();
+                                project->saveWorkspaceFile();
                             }
                             if (disabled) ImGui::EndDisabled();
                         };
@@ -2118,7 +2118,7 @@ void editor::SceneWindow::show() {
                             ImGui::SetNextItemWidth(-1);
                             ImGui::DragFloat("##GridSpacing3D", &sceneProject.displaySettings.gridSpacing3D, 0.1f, 0.1f, 1000.0f, "%.1f");
                             if (ImGui::IsItemDeactivatedAfterEdit()) {
-                                project->saveProjectFile();
+                                project->saveWorkspaceFile();
                             }
                         } else {
                             drawSettingRow(ICON_FA_BORDER_ALL " Snap tile", sceneProject.displaySettings.snapTile);
@@ -2131,7 +2131,7 @@ void editor::SceneWindow::show() {
                                 ImGui::SetNextItemWidth(-1);
                                 ImGui::DragFloat("##GridSpacing2D", &sceneProject.displaySettings.gridSpacing2D, 1.0f, 1.0f, 10000.0f, "%.0f");
                                 if (ImGui::IsItemDeactivatedAfterEdit()) {
-                                    project->saveProjectFile();
+                                    project->saveWorkspaceFile();
                                 }
                             }
                         }
@@ -2146,7 +2146,7 @@ void editor::SceneWindow::show() {
                         ImGui::SetNextItemWidth(-1);
                         ImGui::DragFloat("##RotationSnapDegrees", &sceneProject.displaySettings.rotationSnapDegrees, 1.0f, 0.1f, 180.0f, "%.1f");
                         if (ImGui::IsItemDeactivatedAfterEdit()) {
-                            project->saveProjectFile();
+                            project->saveWorkspaceFile();
                         }
                         if (!sceneProject.displaySettings.snapRotation) ImGui::EndDisabled();
 
@@ -2169,7 +2169,7 @@ void editor::SceneWindow::show() {
                                     if (ImGui::Button((std::string(ICON_FA_ROTATE_LEFT) + "##" + id).c_str())) {
                                         apply(defaultValue);
                                         sceneProject.needUpdateRender = true;
-                                        project->saveProjectFile();
+                                        project->saveWorkspaceFile();
                                     }
                                     ImGui::PopStyleColor(2);
                                     ImGui::PopStyleVar(3);
@@ -2184,7 +2184,7 @@ void editor::SceneWindow::show() {
                                     sceneProject.needUpdateRender = true;
                                 }
                                 if (ImGui::IsItemDeactivatedAfterEdit()) {
-                                    project->saveProjectFile();
+                                    project->saveWorkspaceFile();
                                 }
                             };
 
