@@ -2280,8 +2280,11 @@ static bool beginTerrainProperties(const char* id){
     return true;
 }
 
-static void terrainPropertyRow(const char* label, const char* tooltip = nullptr){
+static void terrainPropertyRow(const char* label, const char* tooltip = nullptr, bool child = false){
     ImGui::TableNextRow();
+    if (child){
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_PopupBg]));
+    }
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
@@ -2471,21 +2474,14 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
             }
             ImGui::EndDisabled();
             ImGui::SameLine();
-            if (iconButton(ICON_FA_SLIDERS, "surface", "Layer surface properties", ImGui::IsPopupOpen("surface"), buttonSize)){
-                ImGui::OpenPopup("surface");
+            if (ImGui::ArrowButton("##toggle_layer", expandedLayers[index] ? ImGuiDir_Up : ImGuiDir_Down)){
+                expandedLayers[index] = !expandedLayers[index];
             }
+            showTooltip("Layer settings");
         }
         ImGui::PopStyleVar();
         ImGui::EndGroup();
         ImGui::EndGroup();
-
-        if (index >= 0){
-            ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 24.0f, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
-            if (ImGui::BeginPopup("surface")){
-                drawLayerSurface(terrain, index);
-                ImGui::EndPopup();
-            }
-        }
 
         // An image is the layer color; a material fills every map it can
         if (index >= 0 && ImGui::BeginDragDropTarget()){
@@ -2499,6 +2495,9 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
             }
             ImGui::EndDragDropTarget();
         }
+        if (index >= 0 && expandedLayers[index]){
+            drawLayerSurface(terrain, index);
+        }
         ImGui::PopID();
     };
 
@@ -2511,7 +2510,8 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
 
     layerRow("Base", "The material's base color. Painting it clears the blend map the selected layer sits on.", basePath, -1);
 
-    const int layerCount = static_cast<int>(terrain.surfaceLayers.size());
+    // The renderer samples this many, so the list never offers a layer that cannot paint
+    const int layerCount = std::min(static_cast<int>(terrain.surfaceLayers.size()), MAX_TERRAIN_LAYERS);
     for (int i = 0; i < layerCount; i++){
         const std::string label = "Layer " + std::to_string(i + 1);
         layerRow(label.c_str(), "Click to paint this layer. Every three layers share a blend map.",
@@ -2585,7 +2585,7 @@ void editor::TerrainEditWindow::applyLayerMaterial(TerrainComponent& terrain, in
     }
 }
 
-// The property sheet behind a layer's surface button. A color layer shows only what it
+// The layer's own settings, as rows of the layer list. A color layer shows only what it
 // can use; the rest appears once it is a PBR layer.
 void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int index){
     if (index < 0 || index >= static_cast<int>(terrain.surfaceLayers.size())){
@@ -2613,7 +2613,7 @@ void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int 
     };
 
     auto mapRow = [&](const char* label, const char* tooltip, Texture TerrainSurfaceLayer::*map){
-        terrainPropertyRow(label, tooltip);
+        terrainPropertyRow(label, tooltip, true);
         ImGui::PushID(label);
         const std::string path = (layer.*map).getPath(0);
         const float fieldWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - (buttonSize.x + spacing) * 2.0f);
@@ -2654,7 +2654,7 @@ void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int 
     };
 
     auto factorRow = [&](const char* label, const char* tooltip, float TerrainSurfaceLayer::*factor, float maxValue){
-        terrainPropertyRow(label, tooltip);
+        terrainPropertyRow(label, tooltip, true);
         ImGui::PushID(label);
         float value = layer.*factor;
         if (ImGui::SliderFloat("##factor", &value, 0.0f, maxValue, "%.2f", ImGuiSliderFlags_AlwaysClamp)){
@@ -2663,18 +2663,13 @@ void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int 
         ImGui::PopID();
     };
 
-    ImGui::SeparatorText(("Layer " + std::to_string(index + 1)).c_str());
-    if (beginTerrainProperties("layer_surface")){
-        terrainPropertyRow("Enable PBR", "Off blends only this layer's color and leaves the rest to the terrain material. On gives the layer its own normal, roughness, metallic and occlusion.");
-        bool pbr = layer.pbr;
-        if (ImGui::Checkbox("##pbr", &pbr)){
-            edit([&](TerrainSurfaceLayer& target){ target.pbr = pbr; });
-        }
-
-        ImGui::EndTable();
+    terrainPropertyRow("Enable PBR", "Off blends only this layer's color and leaves the rest to the terrain material. On gives the layer its own normal, roughness, metallic and occlusion.", true);
+    bool pbr = layer.pbr;
+    if (ImGui::Checkbox("##pbr", &pbr)){
+        edit([&](TerrainSurfaceLayer& target){ target.pbr = pbr; });
     }
 
-    ImGui::Spacing();
+    terrainPropertyRow("Material", "Fill this layer from a material file. Emission and transparency are not copied.", true);
     if (ImGui::Button(ICON_FA_FILE_IMPORT " Copy from material", ImVec2(-1, 0))){
         const std::string chosen = FileDialogs::openFileDialog(project->getProjectPath().string(), FILE_DIALOG_MATERIAL);
         if (!chosen.empty()){
@@ -2685,47 +2680,38 @@ void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int 
             }
         }
     }
-    showTooltip("Fill this layer from a material file. Emission and transparency are not copied.");
 
     // Tiling rides on every layer, so only the maps below wait for the PBR surface
     if (layer.pbr){
-        ImGui::SeparatorText("Surface Maps");
-        if (beginTerrainProperties("layer_maps")){
-            terrainPropertyRow("Tint", "Multiplies the layer color");
-            Vector4 tint = Color::linearTosRGB(layer.colorFactor);
-            if (ImGui::ColorEdit4("##tint", &tint.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel |
-                                  ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf)){
-                const Vector4 linear = Color::sRGBToLinear(tint);
-                edit([&](TerrainSurfaceLayer& target){ target.colorFactor = linear; }, true);
-            }
-
-            mapRow("Normal", "Tangent-space normal map, projected with the layer", &TerrainSurfaceLayer::normalTexture);
-            factorRow("Normal Strength", "How far the normal map tilts the surface", &TerrainSurfaceLayer::normalStrength, 2.0f);
-            mapRow("Roughness", "Read from green, or from the only channel of a grayscale map", &TerrainSurfaceLayer::roughnessTexture);
-            factorRow("Roughness Factor", "Multiplies the roughness map", &TerrainSurfaceLayer::roughnessFactor, 1.0f);
-            mapRow("Metallic", "Read from blue, or from the only channel of a grayscale map", &TerrainSurfaceLayer::metallicTexture);
-            factorRow("Metallic Factor", "Multiplies the metallic map", &TerrainSurfaceLayer::metallicFactor, 1.0f);
-            mapRow("Occlusion", "Read from red. White is unoccluded", &TerrainSurfaceLayer::occlusionTexture);
-            factorRow("Occlusion Strength", "How far the occlusion map darkens ambient light", &TerrainSurfaceLayer::occlusionStrength, 1.0f);
-            mapRow("Height", "Biases the blend toward this layer where it is taller. It never moves geometry", &TerrainSurfaceLayer::heightTexture);
-            ImGui::EndTable();
+        terrainPropertyRow("Tint", "Multiplies the layer color", true);
+        Vector4 tint = Color::linearTosRGB(layer.colorFactor);
+        if (ImGui::ColorEdit4("##tint", &tint.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel |
+                              ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf)){
+            const Vector4 linear = Color::sRGBToLinear(tint);
+            edit([&](TerrainSurfaceLayer& target){ target.colorFactor = linear; }, true);
         }
+
+        mapRow("Normal", "Tangent-space normal map, projected with the layer", &TerrainSurfaceLayer::normalTexture);
+        factorRow("Normal Strength", "How far the normal map tilts the surface", &TerrainSurfaceLayer::normalStrength, 2.0f);
+        mapRow("Roughness", "Read from green, or from the only channel of a grayscale map", &TerrainSurfaceLayer::roughnessTexture);
+        factorRow("Roughness Factor", "Multiplies the roughness map", &TerrainSurfaceLayer::roughnessFactor, 1.0f);
+        mapRow("Metallic", "Read from blue, or from the only channel of a grayscale map", &TerrainSurfaceLayer::metallicTexture);
+        factorRow("Metallic Factor", "Multiplies the metallic map", &TerrainSurfaceLayer::metallicFactor, 1.0f);
+        mapRow("Occlusion", "Read from red. White is unoccluded", &TerrainSurfaceLayer::occlusionTexture);
+        factorRow("Occlusion Strength", "How far the occlusion map darkens ambient light", &TerrainSurfaceLayer::occlusionStrength, 1.0f);
+        mapRow("Height", "Biases the blend toward this layer where it is taller. It never moves geometry", &TerrainSurfaceLayer::heightTexture);
     }
 
-    ImGui::SeparatorText("Tiling");
-    if (beginTerrainProperties("layer_tiling")){
-        terrainPropertyRow("UV Scale", "Multiplies the shared detail tiling for this layer alone");
-        Vector2 uvScale = layer.uvScale;
-        if (ImGui::DragFloat2("##uv_scale", &uvScale.x, 0.01f, 0.0f, 0.0f, "%.2f")){
-            edit([&](TerrainSurfaceLayer& target){ target.uvScale = uvScale; }, true);
-        }
+    terrainPropertyRow("UV Scale", "Multiplies the shared detail tiling for this layer alone", true);
+    Vector2 uvScale = layer.uvScale;
+    if (ImGui::DragFloat2("##uv_scale", &uvScale.x, 0.01f, 0.0f, 0.0f, "%.2f")){
+        edit([&](TerrainSurfaceLayer& target){ target.uvScale = uvScale; }, true);
+    }
 
-        terrainPropertyRow("UV Offset", "Shifts this layer inside its tile");
-        Vector2 uvOffset = layer.uvOffset;
-        if (ImGui::DragFloat2("##uv_offset", &uvOffset.x, 0.01f, 0.0f, 0.0f, "%.2f")){
-            edit([&](TerrainSurfaceLayer& target){ target.uvOffset = uvOffset; }, true);
-        }
-        ImGui::EndTable();
+    terrainPropertyRow("UV Offset", "Shifts this layer inside its tile", true);
+    Vector2 uvOffset = layer.uvOffset;
+    if (ImGui::DragFloat2("##uv_offset", &uvOffset.x, 0.01f, 0.0f, 0.0f, "%.2f")){
+        edit([&](TerrainSurfaceLayer& target){ target.uvOffset = uvOffset; }, true);
     }
 }
 

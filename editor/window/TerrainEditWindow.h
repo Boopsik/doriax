@@ -164,6 +164,8 @@ namespace doriax::editor{
         int densityMapResolution;
         int selectedFoliageLayer;
         int selectedTextureLayer;
+        // which layers show their settings under the layer row
+        bool expandedLayers[MAX_TERRAIN_LAYERS] = {};
 
         // Placed props are ordinary entities, so the palette is tool state, not component data
         std::string placeAssetPath;
