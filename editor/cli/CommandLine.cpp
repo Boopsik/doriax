@@ -524,7 +524,7 @@ int CommandLine::runExportCommand(int argc, char** argv, const char* executableN
     config.startSceneId = resolveStartSceneId(project, options.startScene);
     config.packNativeResources = project.shouldPackNativeResources();
     config.selectedBackends   = options.backends;
-    config.selectedShaderKeys = options.shaderKeys;
+    config.shaderKeysOverride = options.shaderKeys;
 
     if (!options.startScene.empty() && config.startSceneId == 0) {
         Out::warning("Start scene not found: %s", options.startScene.c_str());

@@ -120,9 +120,10 @@ public:
                engineDir.find("/appimage_extracted_") != std::string::npos;
     }
 
-    // Returns true if the file was written/updated.
-    // Returns false if the file was unchanged or if an error occurred.
-    static bool writeIfChanged(const std::filesystem::path& filePath, const std::string& newContent) {
+    enum class WriteResult { Unchanged, Written, Failed };
+
+    // Writes newContent only when the file does not already hold it.
+    static WriteResult writeFile(const std::filesystem::path& filePath, const std::string& newContent) {
         std::string currentContent;
         bool shouldWrite = true;
 
@@ -139,22 +140,28 @@ public:
         }
 
         if (!shouldWrite) {
-            return false;
+            return WriteResult::Unchanged;
         }
 
         if (filePath.has_parent_path()) {
             std::filesystem::create_directories(filePath.parent_path(), ec);
             if (ec) {
-                return false;
+                return WriteResult::Failed;
             }
         }
 
         std::ofstream ofs(filePath, std::ios::out | std::ios::binary | std::ios::trunc);
         if (!ofs) {
-            return false;
+            return WriteResult::Failed;
         }
         ofs.write(newContent.data(), static_cast<std::streamsize>(newContent.size()));
-        return static_cast<bool>(ofs);
+        return ofs ? WriteResult::Written : WriteResult::Failed;
+    }
+
+    // True when the file holds newContent afterwards, written or already up to date.
+    // Use writeFile() when a no-op has to be told apart from a failure.
+    static bool writeIfChanged(const std::filesystem::path& filePath, const std::string& newContent) {
+        return writeFile(filePath, newContent) != WriteResult::Failed;
     }
 
     // path's UTF-8 conversions changed shape in C++20: u8string() returns std::u8string

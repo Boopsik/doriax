@@ -6391,6 +6391,21 @@ YAML::Node editor::Stream::encodeBody3DComponent(const Body3DComponent& body) {
     node["type"] = bodyTypeToString(body.type);
     node["motionQuality"] = body3DMotionQualityToString(body.motionQuality);
     node["sensor"] = body.sensor;
+    node["gravityFactor"] = body.gravityFactor;
+
+    // Six booleans instead of Jolt's bit value, so the file stays readable.
+    YAML::Node dofsNode;
+    auto dof = [&](const char* name, JPH::EAllowedDOFs bit) {
+        dofsNode[name] = (body.allowedDOFs & bit) != JPH::EAllowedDOFs::None;
+    };
+    dof("translationX", JPH::EAllowedDOFs::TranslationX);
+    dof("translationY", JPH::EAllowedDOFs::TranslationY);
+    dof("translationZ", JPH::EAllowedDOFs::TranslationZ);
+    dof("rotationX", JPH::EAllowedDOFs::RotationX);
+    dof("rotationY", JPH::EAllowedDOFs::RotationY);
+    dof("rotationZ", JPH::EAllowedDOFs::RotationZ);
+    node["allowedDOFs"] = dofsNode;
+
     node["numShapes"] = static_cast<unsigned int>(body.numShapes);
 
     YAML::Node shapesNode;
@@ -6448,6 +6463,26 @@ Body3DComponent editor::Stream::decodeBody3DComponent(const YAML::Node& node, co
     if (node["type"]) body.type = stringToBodyType(node["type"].as<std::string>());
     if (node["motionQuality"]) body.motionQuality = stringToBody3DMotionQuality(node["motionQuality"].as<std::string>());
     if (node["sensor"]) body.sensor = node["sensor"].as<bool>();
+    if (node["gravityFactor"]) body.gravityFactor = node["gravityFactor"].as<float>();
+
+    if (node["allowedDOFs"]) {
+        const YAML::Node& dofsNode = node["allowedDOFs"];
+        JPH::EAllowedDOFs dofs = JPH::EAllowedDOFs::None;
+        // A present map is authoritative, so a missing key means that axis is locked.
+        auto dof = [&](const char* name, JPH::EAllowedDOFs bit) {
+            if (dofsNode[name] && dofsNode[name].as<bool>()) dofs = dofs | bit;
+        };
+        dof("translationX", JPH::EAllowedDOFs::TranslationX);
+        dof("translationY", JPH::EAllowedDOFs::TranslationY);
+        dof("translationZ", JPH::EAllowedDOFs::TranslationZ);
+        dof("rotationX", JPH::EAllowedDOFs::RotationX);
+        dof("rotationY", JPH::EAllowedDOFs::RotationY);
+        dof("rotationZ", JPH::EAllowedDOFs::RotationZ);
+        // None crashes Jolt on body creation, and a static body is how you freeze
+        // everything, so an all-false map falls back to All.
+        body.allowedDOFs = (dofs == JPH::EAllowedDOFs::None) ? JPH::EAllowedDOFs::All : dofs;
+    }
+
     if (node["numShapes"]) body.numShapes = node["numShapes"].as<unsigned int>();
 
     if (node["shapes"]) {

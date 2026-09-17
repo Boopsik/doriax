@@ -44,6 +44,8 @@ namespace doriax::editor {
         // Resolved from the scenes and the overrides below; CLI shader generation
         // fills it in directly
         std::set<ShaderKey> selectedShaderKeys;
+        // An explicit --shader list on an export replaces what the scenes reported
+        std::set<ShaderKey> shaderKeysOverride;
         std::set<ShaderKey> shaderAdditions;
         std::set<ShaderKey> shaderExclusions;
         // graphic backends the shaders are compiled for

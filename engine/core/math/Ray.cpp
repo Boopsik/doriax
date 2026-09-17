@@ -383,14 +383,13 @@ RayReturn Ray::intersects(const Body2D& body, size_t shape) const{
 RayReturn Ray::intersects(const Body3D& body) const{
     Body3DComponent& bodycomp = body.getComponent<Body3DComponent>();
     std::shared_ptr<PhysicsSystem> physicsSystem = body.getScene()->getSystem<PhysicsSystem>();
-    JPH::PhysicsSystem* world = physicsSystem->getWorld3D();
 
     if (!bodycomp.body.IsInvalid()){
         JPH::RayCast ray(JPH::Vec3(origin.x, origin.y, origin.z), JPH::Vec3(direction.x, direction.y, direction.z));
         JPH::SubShapeIDCreator id_creator;
         JPH::RayCastResult hit;
 
-        JPH::ShapeRefC shapeRef = world->GetBodyInterface().GetShape(bodycomp.body);
+        JPH::ShapeRefC shapeRef = physicsSystem->getBodyInterface3D().GetShape(bodycomp.body);
 
         JPH::Vec3 normal = shapeRef->GetSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));
 
@@ -510,7 +509,8 @@ RayReturn Ray::intersects(Scene* scene, RayFilter raytest, bool onlyStatic, uint
 
     }else if (raytest == RayFilter::BODY_3D){
 
-        JPH::PhysicsSystem* world = scene->getSystem<PhysicsSystem>()->getWorld3D();
+        std::shared_ptr<PhysicsSystem> physicsSystem = scene->getSystem<PhysicsSystem>();
+        JPH::PhysicsSystem* world = physicsSystem->getWorld3D();
 
         if (world){
             JPH::RayCast ray(JPH::Vec3(origin.x, origin.y, origin.z), JPH::Vec3(direction.x, direction.y, direction.z));
@@ -518,11 +518,11 @@ RayReturn Ray::intersects(Scene* scene, RayFilter raytest, bool onlyStatic, uint
 
             JPH::ObjectLayer objectLayer = JPH::ObjectLayerPairFilterMask::sGetObjectLayer(categoryBits, maskBits);
 
-            if (world->GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), hit, { }, JPH::DefaultObjectLayerFilter(JPH::ObjectLayerPairFilterMask(), objectLayer), OnlyStaticBodyFilter(onlyStatic, ignoreEntities))){
+            if (physicsSystem->getNarrowPhaseQuery3D().CastRay(JPH::RRayCast(ray), hit, { }, JPH::DefaultObjectLayerFilter(JPH::ObjectLayerPairFilterMask(), objectLayer), OnlyStaticBodyFilter(onlyStatic, ignoreEntities))){
                 JPH::Vec3 normal;
                 Entity entity = NULL_ENTITY;
                 size_t shapeIndex = 0;
-                JPH::BodyLockRead lock(world->GetBodyLockInterface(), hit.mBodyID);
+                JPH::BodyLockRead lock(physicsSystem->getBodyLockInterface3D(), hit.mBodyID);
                 if (lock.Succeeded()){
                     const JPH::Body &hit_body = lock.GetBody();
                     normal = hit_body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));
@@ -575,14 +575,12 @@ RayReturn Ray::intersects(Scene* scene, uint8_t broadPhaseLayer3D, uint16_t cate
 
         JPH::ObjectLayer objectLayer = JPH::ObjectLayerPairFilterMask::sGetObjectLayer(categoryBits, maskBits);
 
-        if (world->GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), hit, JPH::SpecifiedBroadPhaseLayerFilter(JPH::BroadPhaseLayer(broadPhaseLayer3D)), JPH::DefaultObjectLayerFilter(JPH::ObjectLayerPairFilterMask(), objectLayer), OnlyStaticBodyFilter(false, ignoreEntities))){
+        if (physicsSystem->getNarrowPhaseQuery3D().CastRay(JPH::RRayCast(ray), hit, JPH::SpecifiedBroadPhaseLayerFilter(JPH::BroadPhaseLayer(broadPhaseLayer3D)), JPH::DefaultObjectLayerFilter(JPH::ObjectLayerPairFilterMask(), objectLayer), OnlyStaticBodyFilter(false, ignoreEntities))){
             JPH::Vec3 normal;
             Entity entity = NULL_ENTITY;
             size_t shapeIndex = 0;
 
-            const JPH::BodyLockInterface& bodyLockInterface = physicsSystem->isLock3DBodies()? static_cast<const JPH::BodyLockInterface &>(world->GetBodyLockInterface()) : static_cast<const JPH::BodyLockInterface &>(world->GetBodyLockInterfaceNoLock());
-
-            JPH::BodyLockRead lock(bodyLockInterface, hit.mBodyID);
+            JPH::BodyLockRead lock(physicsSystem->getBodyLockInterface3D(), hit.mBodyID);
             if (lock.Succeeded()){
                 const JPH::Body &hit_body = lock.GetBody();
                 normal = hit_body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));

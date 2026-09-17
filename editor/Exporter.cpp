@@ -594,9 +594,15 @@ void editor::Exporter::resolveShaderKeys() {
     }
 
     std::set<ShaderKey> keys;
-    for (const auto& sceneProject : project->getScenes()) {
-        for (ShaderKey key : sceneProject.shaderKeys) {
+    if (!config.shaderKeysOverride.empty()) {
+        for (ShaderKey key : config.shaderKeysOverride) {
             keys.insert(ShaderPool::normalizeKey(key));
+        }
+    } else {
+        for (const auto& sceneProject : project->getScenes()) {
+            for (ShaderKey key : sceneProject.shaderKeys) {
+                keys.insert(ShaderPool::normalizeKey(key));
+            }
         }
     }
     for (ShaderKey key : config.shaderAdditions) {

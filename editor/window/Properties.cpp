@@ -10494,6 +10494,7 @@ void editor::Properties::drawBody3DComponent(ComponentType cpType, SceneProject*
     propertyRow(RowPropertyType::Enum, cpType, "type", "Body Type", sceneProject, entities, settingsBodyType);
     propertyRow(RowPropertyType::Enum, cpType, "motionQuality", "Motion Quality", sceneProject, entities, settingsMotionQuality);
     propertyRow(RowPropertyType::Bool, cpType, "sensor", "Sensor", sceneProject, entities, settingsBodyValue);
+    propertyRow(RowPropertyType::Float, cpType, "gravityFactor", "Gravity Factor", sceneProject, entities, settingsBodyValue);
     propertyRow(RowPropertyType::Bool, cpType, "overrideMassProperties", "Override Mass", sceneProject, entities, settingsBodyValue);
 
     if (body.overrideMassProperties) {

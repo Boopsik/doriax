@@ -74,15 +74,11 @@ void Body3D::checkBody(const Body3DComponent& body) const{
 }
 
 const JPH::BodyLockInterface& Body3D::getBodyLockInterface() const{
-    std::shared_ptr<PhysicsSystem> physicsSystem = scene->getSystem<PhysicsSystem>();
-    JPH::PhysicsSystem* world = physicsSystem->getWorld3D();
-    return physicsSystem->isLock3DBodies()? static_cast<const JPH::BodyLockInterface &>(world->GetBodyLockInterface()) : static_cast<const JPH::BodyLockInterface &>(world->GetBodyLockInterfaceNoLock());
+    return scene->getSystem<PhysicsSystem>()->getBodyLockInterface3D();
 }
 
 JPH::BodyInterface& Body3D::getBodyInterface() const{
-    std::shared_ptr<PhysicsSystem> physicsSystem = scene->getSystem<PhysicsSystem>();
-    JPH::PhysicsSystem* world = physicsSystem->getWorld3D();
-    return physicsSystem->isLock3DBodies()? world->GetBodyInterface() : world->GetBodyInterfaceNoLock();
+    return scene->getSystem<PhysicsSystem>()->getBodyInterface3D();
 }
 
 const JPH::Body& Body3D::getJoltBody() const{

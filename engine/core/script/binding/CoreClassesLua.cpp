@@ -542,18 +542,18 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .addFunction("getMinNearestPowerOfTwo", &TextureData::getMinNearestPowerOfTwo)
         .endClass();
 
-        luabridge::getGlobalNamespace(L)
-            // A load result, read-only on purpose
-            .beginClass<TextureLoadResult>("TextureLoadResult")
-            .addConstructor<void()>()
-            .addProperty("id", &TextureLoadResult::id)
-            .addProperty("state", &TextureLoadResult::state)
-            .addProperty("errorMessage", &TextureLoadResult::errorMessage)
-            .addProperty("data", &TextureLoadResult::data)
-            .addFunction("__tostring", [] (const TextureLoadResult& result) {
-                return "TextureLoadResult(id: " + result.id + ", state: " + std::to_string(static_cast<int>(result.state)) + ")";
-            })
-            .endClass();
+    luabridge::getGlobalNamespace(L)
+        // A load result, read-only on purpose
+        .beginClass<TextureLoadResult>("TextureLoadResult")
+        .addConstructor<void()>()
+        .addProperty("id", &TextureLoadResult::id)
+        .addProperty("state", &TextureLoadResult::state)
+        .addProperty("errorMessage", &TextureLoadResult::errorMessage)
+        .addProperty("data", &TextureLoadResult::data)
+        .addFunction("__tostring", [] (const TextureLoadResult& result) {
+            return "TextureLoadResult(id: " + result.id + ", state: " + std::to_string(static_cast<int>(result.state)) + ")";
+        })
+        .endClass();
 
     luabridge::getGlobalNamespace(L)
         // Mesh::getMaterial hands back a copy, so these stay read-only: a write would look

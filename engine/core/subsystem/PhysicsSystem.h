@@ -40,6 +40,10 @@ namespace doriax{
 		b2WorldId world2D;
 		float pointsToMeterScale2D;
 		bool lock3DBodies;
+		bool steppingWorld3D = false;
+
+		void flushPendingDestroys3D();
+		bool useLockedInterfaces3D() const;
 
 		JoltActivationListener* activationListener3D;
 		JoltContactListener* contactListener3D;
@@ -49,6 +53,11 @@ namespace doriax{
         JPH::JobSystemThreadPool* job_system;
 
 		JPH::PhysicsSystem world3D;
+
+		// Handles a teardown could not release while stepping. After world3D so they are
+		// destroyed first, releasing while the world they belong to is still alive.
+		std::vector<JPH::BodyID> pendingBodyDestroy3D;
+		std::vector<JPH::Ref<JPH::TwoBodyConstraint>> pendingJointDestroy3D;
 
 		JPH::BroadPhaseLayerInterfaceMask* broad_phase_layer_interface;
 		JPH::ObjectVsBroadPhaseLayerFilterMask* object_vs_broadphase_layer_filter;
@@ -99,6 +108,18 @@ namespace doriax{
 
         void setLock3DBodies(bool lock3DBodies);
         bool isLock3DBodies() const;
+
+        // Everything reaching a Jolt body goes through these: during a step the locking
+        // variants deadlock, as the calling thread already holds the locks. Queries take
+        // body locks of their own, so a ray cast needs the no-lock one too.
+        JPH::BodyInterface& getBodyInterface3D();
+        const JPH::BodyLockInterface& getBodyLockInterface3D();
+        const JPH::NarrowPhaseQuery& getNarrowPhaseQuery3D();
+
+        // True inside a contact, activation or collision callback. Jolt keeps the broad
+        // phase and the constraint list locked for the whole step, so a body or joint
+        // cannot be created then (refused, retried next update) and teardown is queued.
+        bool isSteppingWorld3D() const;
 
 		static JPH::EMotionQuality getBody3DMotionQualityToJolt(Body3DMotionQuality motionQuality);
 

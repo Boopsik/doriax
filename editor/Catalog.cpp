@@ -968,6 +968,9 @@ namespace {
         if (propertyName == "sensor") {
             return {PropertyType::Bool, UpdateFlags_Body3D, (void*)&defaultBody3D.sensor, (void*)&comp->sensor};
         }
+        if (propertyName == "gravityFactor") {
+            return {PropertyType::Float, UpdateFlags_Body3D, (void*)&defaultBody3D.gravityFactor, (void*)&comp->gravityFactor};
+        }
         if (propertyName == "numShapes") {
             return {PropertyType::UInt, UpdateFlags_Body3D, (void*)&defaultBody3D.numShapes, (void*)&comp->numShapes};
         }
@@ -2452,6 +2455,7 @@ namespace {
         ps["type"] = {PropertyType::Enum, UpdateFlags_Body3D, (void*)&def.type, compRef ? (void*)&comp->type : nullptr};
         ps["motionQuality"] = {PropertyType::Enum, UpdateFlags_Body3D, (void*)&def.motionQuality, compRef ? (void*)&comp->motionQuality : nullptr};
         ps["sensor"] = {PropertyType::Bool, UpdateFlags_Body3D, (void*)&def.sensor, compRef ? (void*)&comp->sensor : nullptr};
+        ps["gravityFactor"] = {PropertyType::Float, UpdateFlags_Body3D, (void*)&def.gravityFactor, compRef ? (void*)&comp->gravityFactor : nullptr};
         ps["numShapes"] = {PropertyType::UInt, UpdateFlags_Body3D, (void*)&def.numShapes, compRef ? (void*)&comp->numShapes : nullptr};
         ps["overrideMassProperties"] = {PropertyType::Bool, UpdateFlags_Body3D, (void*)&def.overrideMassProperties, compRef ? (void*)&comp->overrideMassProperties : nullptr};
         ps["solidBoxSize"] = {PropertyType::Vector3, UpdateFlags_Body3D, (void*)&def.solidBoxSize, compRef ? (void*)&comp->solidBoxSize : nullptr};

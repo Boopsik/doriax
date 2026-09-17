@@ -3984,7 +3984,7 @@ void editor::Project::copyEngineApiToProject() {
                         (std::istreambuf_iterator<char>(sourceFile)),
                         std::istreambuf_iterator<char>());
 
-                    if (FileUtils::writeIfChanged(destPath, sourceContent)) {
+                    if (FileUtils::writeFile(destPath, sourceContent) == FileUtils::WriteResult::Written) {
                         updatedFiles++;
                     }
                 }
