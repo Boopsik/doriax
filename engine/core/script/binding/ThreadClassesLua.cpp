@@ -24,6 +24,7 @@ void LuaBinding::registerThreadClasses(lua_State *L){
         .endNamespace();
 
     luabridge::getGlobalNamespace(L)
+        // Progress reporting, read-only on purpose
         .beginClass<ResourceBuildInfo>("ResourceBuildInfo")
         .addProperty("type", &ResourceBuildInfo::type)
         .addProperty("name", &ResourceBuildInfo::name)
@@ -33,6 +34,7 @@ void LuaBinding::registerThreadClasses(lua_State *L){
         .endClass();
 
     luabridge::getGlobalNamespace(L)
+        // Progress snapshot, read-only on purpose
         .beginClass<OverallBuildProgress>("OverallBuildProgress")
         .addProperty("totalProgress", &OverallBuildProgress::totalProgress)
         .addProperty("totalBuilds", &OverallBuildProgress::totalBuilds)

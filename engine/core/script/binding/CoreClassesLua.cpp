@@ -290,8 +290,8 @@ void LuaBinding::registerCoreClasses(lua_State *L){
     luabridge::getGlobalNamespace(L)
         .beginClass<PostProcessPass>("PostProcessPass")
         .addConstructor<void (*) (void)>()
-        .addProperty("shader", &PostProcessPass::shader)
-        .addProperty("enabled", &PostProcessPass::enabled)
+        .addProperty("shader", &PostProcessPass::shader, &PostProcessPass::shader)
+        .addProperty("enabled", &PostProcessPass::enabled, &PostProcessPass::enabled)
         .addFunction("setUniform",
             luabridge::overload<const std::string&, const Vector4&>(&PostProcessPass::setUniform),
             luabridge::overload<const std::string&, const Vector3&>(&PostProcessPass::setUniform),
@@ -543,6 +543,7 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .endClass();
 
         luabridge::getGlobalNamespace(L)
+            // A load result, read-only on purpose
             .beginClass<TextureLoadResult>("TextureLoadResult")
             .addConstructor<void()>()
             .addProperty("id", &TextureLoadResult::id)
@@ -555,6 +556,8 @@ void LuaBinding::registerCoreClasses(lua_State *L){
             .endClass();
 
     luabridge::getGlobalNamespace(L)
+        // Mesh::getMaterial hands back a copy, so these stay read-only: a write would look
+        // like it worked and change nothing. Use Mesh::setMaterial.
         .beginClass<Material>("Material")
         .addProperty("baseColorFactor", &Material::baseColorFactor)
         .addProperty("metallicFactor", &Material::metallicFactor)
