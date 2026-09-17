@@ -16,7 +16,13 @@ in float i_terrainnode_size;
 in float i_terrainnode_range;
 in float i_terrainnode_resolution; //int
 
-#ifndef DEPTH_SHADER
+// The color pass always carries the surface varyings; of the two DEPTH_SHADER passes only
+// the G-buffer wants them, and only when painted layers supply the surface it writes.
+#if !defined(DEPTH_SHADER) || defined(HAS_TERRAIN_PBR)
+    #define TERRAIN_SURFACE_VARYINGS
+#endif
+
+#ifdef TERRAIN_SURFACE_VARYINGS
     out vec2 v_terrainTextureCoords;
     out vec2 v_terrainTextureDetailTiled;
     // surface height in the same units as the tiled coords, for the triplanar side planes
@@ -26,6 +32,18 @@ in float i_terrainnode_resolution; //int
     #ifdef HAS_NORMALS
         out vec3 v_terrainNormal;
     #endif
+#endif
+
+#if defined(HAS_TERRAIN_PBR) && defined(HAS_NORMALS)
+    // Layer normals are built on the terrain's own axes; these carry them into whichever
+    // space the pass shades in, so a rotated terrain still lights correctly
+    out vec3 v_terrainAxisX;
+    out vec3 v_terrainAxisZ;
+
+    void setTerrainShadingAxes(mat4 normalMatrix){
+        v_terrainAxisX = normalize((normalMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+        v_terrainAxisZ = normalize((normalMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+    }
 #endif
 
 float morphFactor;
@@ -57,7 +75,7 @@ vec3 getTerrainPosition(vec3 pos, mat4 modelMatrix){
 
     float dist = distance(terrain.eyePos, vec3(modelMatrix * vec4(pos, 1.0)));
 
-    #ifndef DEPTH_SHADER
+    #ifdef TERRAIN_SURFACE_VARYINGS
         v_terrainEyeTiles = dist * float(terrain.textureDetailTiles) / terrain.size;
     #endif
 
@@ -91,7 +109,7 @@ vec3 getTerrainNormal(vec3 normal, vec3 position){
 
         normal = normalize(cross(pB - p, pA - p));
 
-        #ifndef DEPTH_SHADER
+        #ifdef TERRAIN_SURFACE_VARYINGS
             v_terrainNormal = normal;
         #endif
     #endif
@@ -99,7 +117,7 @@ vec3 getTerrainNormal(vec3 normal, vec3 position){
     return normal;
 }
 
-#ifndef DEPTH_SHADER
+#ifdef TERRAIN_SURFACE_VARYINGS
     vec2 getTerrainTiledTexture(vec3 position){
         v_terrainTextureCoords = (position.xz + (terrain.size/2.0)) / terrain.size;
         v_terrainTextureDetailTiled = v_terrainTextureCoords * float(terrain.textureDetailTiles);

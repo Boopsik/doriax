@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <map>
 #include <random>
 #include <cstdint>
 #include <cstring>
@@ -1507,7 +1508,7 @@ void RenderSystem::renderReflectionProbeCapture(){
         InstancedMeshComponent* instanced = scene->findComponent<InstancedMeshComponent>(entity);
         TerrainComponent* terrain = scene->findComponent<TerrainComponent>(entity);
         TilemapComponent* tilemap = scene->findComponent<TilemapComponent>(entity);
-        drawMesh(*mesh, transform, captureCamera, captureTransform, PIP_RTT_INVERT, instanced, terrain, tilemap, 0);
+        drawMesh(entity, *mesh, transform, captureCamera, captureTransform, PIP_RTT_INVERT, instanced, terrain, tilemap, 0);
     }
 
     runtime.capturePass.endRenderPass();
@@ -2048,35 +2049,98 @@ bool RenderSystem::loadGBufferTextures(Material& material, ShaderData& shaderDat
     return true;
 }
 
-// Read here rather than through Texture, which would upload a 2D image per layer on top
-// of the array. Rebuilt only when the set of files changes.
-RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity entity, TerrainComponent& terrain){
-    // The shader reaches all three layers of any bound blend map, so slices come in threes
-    std::vector<std::string> paths;
-    for (const Texture& layer : terrain.textureLayers){
-        // The loader parses the scale back out of the suffix, and the cache key carries it
-        const std::string path = layer.getPath(0);
-        paths.push_back(TextureData::hasSvgExtension(path.c_str()) ? TextureData::buildSvgScalePath(path, layer.getSvgScale()) : path);
+namespace {
+    // The loader parses the scale back out of the suffix, so the cache key carries it
+    std::string terrainSourceKey(const Texture& texture){
+        const std::string path = texture.getPath(0);
+        if (path.empty()){
+            return std::string();
+        }
+        return TextureData::hasSvgExtension(path.c_str()) ? TextureData::buildSvgScalePath(path, texture.getSvgScale()) : path;
     }
-    paths.resize(((paths.size() + 2) / 3) * 3);
-    if (std::all_of(paths.begin(), paths.end(), [](const std::string& path){ return path.empty(); })){
+
+    bool terrainLayerHasSurfaceMaps(const TerrainSurfaceLayer& layer){
+        return !layer.occlusionTexture.empty() || !layer.roughnessTexture.empty() ||
+               !layer.metallicTexture.empty() || !layer.heightTexture.empty();
+    }
+
+    // A map is read from its conventional channel when it has color, and from its only
+    // channel when it is grayscale, so packed and separate sources both work
+    unsigned char terrainSourceChannel(TextureData* source, size_t texel, int channel, unsigned char fallback){
+        if (!source || !source->getData()){
+            return fallback;
+        }
+        const int channels = source->getChannels();
+        if (channel == 3 && channels < 4){
+            return fallback;
+        }
+        const unsigned char* pixels = static_cast<const unsigned char*>(source->getData());
+        return pixels[texel * channels + ((channels < 3) ? 0 : channel)];
+    }
+}
+
+// Read here rather than through Texture, which would upload a 2D image per layer on top
+// of the array. Rebuilt only when the set of source files changes.
+RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity entity, TerrainComponent& terrain){
+    // The shader reaches all three layers of any bound blend map, so colors come in threes
+    const size_t layerCount = std::min(terrain.surfaceLayers.size(), (size_t)MAX_TERRAIN_LAYERS);
+    const size_t colorSlices = ((layerCount + 2) / 3) * 3;
+
+    // One slice key per array slice: the color slices first, then the normal and packed
+    // surface slices of the layers that have them
+    std::vector<std::string> sliceKeys(colorSlices);
+    std::array<int, MAX_TERRAIN_LAYERS> normalSlice;
+    std::array<int, MAX_TERRAIN_LAYERS> surfaceSlice;
+    normalSlice.fill(-1);
+    surfaceSlice.fill(-1);
+
+    bool anySource = false;
+    for (size_t i = 0; i < layerCount; i++){
+        const TerrainSurfaceLayer& layer = terrain.surfaceLayers[i];
+        sliceKeys[i] = terrainSourceKey(layer.colorTexture);
+        anySource = anySource || !sliceKeys[i].empty();
+
+        if (!layer.pbr){
+            continue;
+        }
+        if (!layer.normalTexture.empty()){
+            normalSlice[i] = (int)sliceKeys.size();
+            sliceKeys.push_back("normal|" + terrainSourceKey(layer.normalTexture));
+            anySource = true;
+        }
+        if (terrainLayerHasSurfaceMaps(layer)){
+            surfaceSlice[i] = (int)sliceKeys.size();
+            sliceKeys.push_back("surface|" + terrainSourceKey(layer.occlusionTexture) + "|" + terrainSourceKey(layer.roughnessTexture) +
+                                "|" + terrainSourceKey(layer.metallicTexture) + "|" + terrainSourceKey(layer.heightTexture));
+            anySource = true;
+        }
+    }
+
+    if (!anySource){
         destroyTerrainDetailArray(entity);
         return NULL;
     }
 
     // One sampler covers every slice, so the first assigned layer sets it for all of them
-    const Texture* sampled = &terrain.textureLayers[0];
-    for (size_t i = 0; i < paths.size(); i++){
-        if (!paths[i].empty()){
-            sampled = &terrain.textureLayers[i];
+    const Texture* sampled = &terrain.surfaceLayers[0].colorTexture;
+    for (size_t i = 0; i < layerCount; i++){
+        if (!terrain.surfaceLayers[i].colorTexture.empty()){
+            sampled = &terrain.surfaceLayers[i].colorTexture;
             break;
         }
+    }
+
+    // Tiled surface maps alias badly at distance without mipmaps. A color-only terrain
+    // keeps whatever filter its layer textures ask for, so its look is unchanged.
+    TextureFilter minFilter = sampled->getMinFilter();
+    if (minFilter == TextureFilter::LINEAR && hasTerrainSurfaceLayers(terrain)){
+        minFilter = TextureFilter::LINEAR_MIPMAP_LINEAR;
     }
 
     auto it = terrainDetailArrays.find(entity);
     if (it != terrainDetailArrays.end()){
         const TerrainDetailArray& cached = it->second;
-        if (cached.paths == paths && cached.minFilter == sampled->getMinFilter() && cached.magFilter == sampled->getMagFilter() &&
+        if (cached.sliceKeys == sliceKeys && cached.minFilter == minFilter && cached.magFilter == sampled->getMagFilter() &&
             cached.wrapU == sampled->getWrapU() && cached.wrapV == sampled->getWrapV()){
             // A set that could not be built is remembered, not retried every frame
             return cached.failed ? NULL : &it->second;
@@ -2086,8 +2150,11 @@ RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity ent
 
     auto remember = [&](bool failed) -> TerrainDetailArray& {
         TerrainDetailArray& entry = terrainDetailArrays[entity];
-        entry.paths = paths;
-        entry.minFilter = sampled->getMinFilter();
+        entry.sliceKeys = sliceKeys;
+        entry.colorSlices = (int)colorSlices;
+        entry.normalSlice = normalSlice;
+        entry.surfaceSlice = surfaceSlice;
+        entry.minFilter = minFilter;
         entry.magFilter = sampled->getMagFilter();
         entry.wrapU = sampled->getWrapU();
         entry.wrapV = sampled->getWrapV();
@@ -2095,75 +2162,113 @@ RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity ent
         return entry;
     };
 
-    std::vector<TextureData> slices(paths.size());
+    // A map shared by several layers is read once, and the array takes the largest of them
+    std::map<std::string, TextureData> sources;
     int width = 0;
     int height = 0;
-    bool anyRGBA = false;
-    for (size_t i = 0; i < paths.size(); i++){
-        if (paths[i].empty() || !slices[i].loadTextureFromFile(paths[i].c_str())){
-            continue;
+    auto source = [&](const Texture& texture) -> TextureData* {
+        const std::string key = terrainSourceKey(texture);
+        if (key.empty()){
+            return NULL;
         }
-        // stb hands over the pixels, and nothing else will free them
-        slices[i].setDataOwned(true);
-        width = std::max(width, slices[i].getWidth());
-        height = std::max(height, slices[i].getHeight());
-        anyRGBA = anyRGBA || slices[i].getColorFormat() == ColorFormat::RGBA;
+        auto found = sources.find(key);
+        if (found == sources.end()){
+            found = sources.emplace(key, TextureData()).first;
+            if (!found->second.loadTextureFromFile(key.c_str())){
+                return NULL;
+            }
+            // stb hands over the pixels, and nothing else will free them
+            found->second.setDataOwned(true);
+            width = std::max(width, found->second.getWidth());
+            height = std::max(height, found->second.getHeight());
+        }
+        return found->second.getData() ? &found->second : NULL;
+    };
+
+    enum SliceKind{ SLICE_COLOR, SLICE_NORMAL, SLICE_SURFACE };
+    struct SliceSources{
+        SliceKind kind = SLICE_COLOR;
+        TextureData* color = NULL;
+        TextureData* normal = NULL;
+        TextureData* occlusion = NULL;
+        TextureData* roughness = NULL;
+        TextureData* metallic = NULL;
+        TextureData* height = NULL;
+    };
+    std::vector<SliceSources> sliceSources(sliceKeys.size());
+    for (size_t i = 0; i < layerCount; i++){
+        const TerrainSurfaceLayer& layer = terrain.surfaceLayers[i];
+        sliceSources[i].color = source(layer.colorTexture);
+        if (normalSlice[i] >= 0){
+            sliceSources[normalSlice[i]].kind = SLICE_NORMAL;
+            sliceSources[normalSlice[i]].normal = source(layer.normalTexture);
+        }
+        if (surfaceSlice[i] >= 0){
+            SliceSources& packed = sliceSources[surfaceSlice[i]];
+            packed.kind = SLICE_SURFACE;
+            packed.occlusion = source(layer.occlusionTexture);
+            packed.roughness = source(layer.roughnessTexture);
+            packed.metallic = source(layer.metallicTexture);
+            packed.height = source(layer.heightTexture);
+        }
     }
+
     if (width == 0){
         remember(true);
         return NULL;
     }
-
-    // One image holds a single format, so grayscale layers are widened instead of refused
-    const ColorFormat colorFormat = anyRGBA ? ColorFormat::RGBA : slices[0].getColorFormat();
-    std::vector<std::vector<unsigned char>> widened(paths.size());
-    size_t sliceSize = 0;
-    for (size_t i = 0; i < paths.size(); i++){
-        if (!slices[i].getData()){
-            continue;
-        }
-        if (slices[i].getWidth() != width || slices[i].getHeight() != height){
-            slices[i].resize(width, height);
-        }
-        if (slices[i].getColorFormat() == ColorFormat::RED && colorFormat == ColorFormat::RGBA){
-            const unsigned char* grey = static_cast<const unsigned char*>(slices[i].getData());
-            widened[i].resize(static_cast<size_t>(width) * height * 4);
-            for (size_t t = 0; t < static_cast<size_t>(width) * height; t++){
-                widened[i][t * 4 + 0] = grey[t];
-                widened[i][t * 4 + 1] = grey[t];
-                widened[i][t * 4 + 2] = grey[t];
-                widened[i][t * 4 + 3] = 0xFF;
-            }
-        }else if (slices[i].getColorFormat() != colorFormat){
-            Log::error("Terrain detail layer '%s' does not have the same format as the other layers", paths[i].c_str());
-            remember(true);
-            return NULL;
-        }
-        sliceSize = widened[i].empty() ? slices[i].getSize() : widened[i].size();
+    if (width > MAX_TERRAIN_DETAIL_SIZE || height > MAX_TERRAIN_DETAIL_SIZE){
+        Log::warn("Terrain detail maps are capped at %d px, larger sources are downscaled", MAX_TERRAIN_DETAIL_SIZE);
+        width = std::min(width, MAX_TERRAIN_DETAIL_SIZE);
+        height = std::min(height, MAX_TERRAIN_DETAIL_SIZE);
     }
 
-    // An unassigned layer still needs a slice, and white is what it used to bind
-    std::vector<unsigned char> whiteSlice(sliceSize, 0xFF);
-
-    std::vector<void*> data(paths.size());
-    std::vector<size_t> size(paths.size());
-    for (size_t i = 0; i < paths.size(); i++){
-        if (!widened[i].empty()){
-            data[i] = widened[i].data();
-            size[i] = widened[i].size();
-        }else if (slices[i].getData()){
-            data[i] = slices[i].getData();
-            size[i] = slices[i].getSize();
-        }else{
-            data[i] = whiteSlice.data();
-            size[i] = sliceSize;
+    for (auto& entry : sources){
+        // A map that failed to load is kept so it is not retried, but it has nothing to resize
+        if (!entry.second.getData()){
+            continue;
         }
+        if (entry.second.getWidth() != width || entry.second.getHeight() != height){
+            entry.second.resize(width, height);
+        }
+    }
+
+    // Slices share one format, and the packed ones need four channels anyway
+    const size_t texels = (size_t)width * height;
+    std::vector<std::vector<unsigned char>> slices(sliceKeys.size());
+    std::vector<void*> data(sliceKeys.size());
+    std::vector<size_t> size(sliceKeys.size());
+    for (size_t s = 0; s < sliceKeys.size(); s++){
+        const SliceSources& src = sliceSources[s];
+        // An unassigned map falls back to the neutral value of its channel: white for
+        // color and surface, and a flat normal that leaves the geometry alone
+        slices[s].resize(texels * 4, 0xFF);
+        for (size_t t = 0; t < texels; t++){
+            unsigned char* texel = &slices[s][t * 4];
+            if (src.kind == SLICE_NORMAL){
+                texel[0] = terrainSourceChannel(src.normal, t, 0, 0x80);
+                texel[1] = terrainSourceChannel(src.normal, t, 1, 0x80);
+                texel[2] = terrainSourceChannel(src.normal, t, 2, 0xFF);
+            }else if (src.kind == SLICE_SURFACE){
+                texel[0] = terrainSourceChannel(src.occlusion, t, 0, 0xFF);
+                texel[1] = terrainSourceChannel(src.roughness, t, 1, 0xFF);
+                texel[2] = terrainSourceChannel(src.metallic, t, 2, 0xFF);
+                texel[3] = terrainSourceChannel(src.height, t, 0, 0xFF);
+            }else{
+                texel[0] = terrainSourceChannel(src.color, t, 0, 0xFF);
+                texel[1] = terrainSourceChannel(src.color, t, 1, 0xFF);
+                texel[2] = terrainSourceChannel(src.color, t, 2, 0xFF);
+                texel[3] = terrainSourceChannel(src.color, t, 3, 0xFF);
+            }
+        }
+        data[s] = slices[s].data();
+        size[s] = slices[s].size();
     }
 
     TerrainDetailArray& detail = remember(false);
     if (!detail.render.createTexture("terrain|detail|" + std::to_string(entity), width, height,
-            colorFormat, TextureType::TEXTURE_ARRAY, static_cast<int>(paths.size()), data.data(), size.data(),
-            sampled->getMinFilter(), sampled->getMagFilter(), sampled->getWrapU(), sampled->getWrapV())){
+            ColorFormat::RGBA, TextureType::TEXTURE_ARRAY, (int)sliceKeys.size(), data.data(), size.data(),
+            minFilter, sampled->getMagFilter(), sampled->getWrapU(), sampled->getWrapV())){
         detail.failed = true;
         return NULL;
     }
@@ -2177,6 +2282,34 @@ void RenderSystem::destroyTerrainDetailArray(Entity entity){
         it->second.render.destroyTexture();
         terrainDetailArrays.erase(it);
     }
+}
+
+// Factors change without rebuilding the array, so the block is filled at draw time
+void RenderSystem::applyTerrainLayersUniform(ObjectRender& render, int slot, Entity entity, TerrainComponent& terrain){
+    if (slot == -1){
+        return;
+    }
+
+    auto it = terrainDetailArrays.find(entity);
+    const TerrainDetailArray* detail = (it != terrainDetailArrays.end() && !it->second.failed) ? &it->second : NULL;
+
+    static const TerrainSurfaceLayer emptyLayer;
+
+    fs_terrain_layers_t layers;
+    for (int i = 0; i < MAX_TERRAIN_LAYERS; i++){
+        const bool present = i < (int)terrain.surfaceLayers.size();
+        const TerrainSurfaceLayer& layer = present ? terrain.surfaceLayers[i] : emptyLayer;
+        const bool pbr = present && layer.pbr;
+
+        layers.colorFactor[i] = Vector4(layer.colorFactor.x, layer.colorFactor.y, layer.colorFactor.z, pbr ? 1.0f : 0.0f);
+        layers.uvTransform[i] = Vector4(layer.uvScale.x, layer.uvScale.y, layer.uvOffset.x, layer.uvOffset.y);
+        layers.surface[i] = Vector4(layer.roughnessFactor, layer.metallicFactor, layer.normalStrength, layer.occlusionStrength);
+        layers.slices[i] = Vector4((float)i,
+                                   detail ? (float)detail->normalSlice[i] : -1.0f,
+                                   detail ? (float)detail->surfaceSlice[i] : -1.0f, 0.0f);
+    }
+
+    render.applyUniformBlock(slot, sizeof(fs_terrain_layers_t), &layers);
 }
 
 bool RenderSystem::loadTerrainTextures(Entity entity, TerrainComponent& terrain, ObjectRender& render, ShaderData& shaderData){
@@ -2211,7 +2344,7 @@ bool RenderSystem::loadTerrainTextures(Entity entity, TerrainComponent& terrain,
     render.addTexture(slotTex, ShaderStageType::FRAGMENT, arrayCreated ? &detail->render : &emptyArrayWhite);
 
     // The rest bind black, which weights none of their layers
-    const int coveredMaps = arrayCreated ? static_cast<int>(detail->paths.size() / 3) : 0;
+    const int coveredMaps = arrayCreated ? detail->colorSlices / 3 : 0;
     for (int m = 0; m < MAX_TERRAIN_BLENDMAPS; m++){
         const bool covered = m < coveredMaps && m < static_cast<int>(terrain.blendMaps.size());
         textureRender = covered ? terrain.blendMaps[m].getRender(&emptyBlack) : NULL;
@@ -2270,7 +2403,9 @@ bool RenderSystem::updateTerrainRenderTextures(Entity entity, TerrainComponent& 
         }
         if (mesh.submeshes[s].gbufferShader){
             ShaderData& gbufferShaderData = mesh.submeshes[s].gbufferShader.get()->shaderData;
-            if (!loadTerrainHeightTexture(terrain, mesh.submeshes[s].gbufferRender, gbufferShaderData)){
+            const bool painted = mesh.submeshes[s].slotFSGBufferTerrainLayers != -1;
+            if (painted ? !loadTerrainTextures(entity, terrain, mesh.submeshes[s].gbufferRender, gbufferShaderData)
+                        : !loadTerrainHeightTexture(terrain, mesh.submeshes[s].gbufferRender, gbufferShaderData)){
                 texLoaded = false;
             }
         }
@@ -2550,6 +2685,9 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
         if (terrain && (!terrain->blendMaps.empty() || hasPBRTextures)){
             p_hasTexture1 = true;
         }
+        // Painted layers that bring their own surface need the wider terrain path; a
+        // terrain of plain color layers keeps the cheaper one it always had.
+        const bool p_terrainSurface = terrain && hasTerrainSurfaceLayers(*terrain);
         bool useIBL = (hasIBL || hasReflectionProbes) && mesh.receiveIBL;
         if ((hasLights || useIBL) && mesh.receiveLights){
             p_punctual = hasLights;
@@ -2608,7 +2746,7 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
                         p_hasTangent, mesh.submeshes[i].hasVertexColor3, mesh.submeshes[i].hasVertexColor4, mesh.submeshes[i].hasTextureRect,
                         hasFog, mesh.submeshes[i].hasSkinning, mesh.submeshes[i].hasMorphTarget, mesh.submeshes[i].hasMorphNormal, mesh.submeshes[i].hasMorphTangent,
                         (terrain)?true:false, (instmesh)?true:false, p_ibl, p_mirror, p_ssao, p_light2d, p_shadows2d,
-                        p_alphaMask, p_alphaOpaque, p_instanceFade);
+                        p_alphaMask, p_alphaOpaque, p_instanceFade, p_terrainSurface);
         // a user-forked main shader overrides the built-in Mesh shader; the variant
         // (#define) system, depth/gbuffer passes and bind-slots are unchanged.
         // Priority: component customShader > scene default shader > built-in (empty)
@@ -2658,7 +2796,7 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
             mesh.submeshes[i].gbufferShaderProperties = ShaderPool::getGBufferMeshProperties(
                 gbufferHasBaseColorTex, mesh.submeshes[i].hasNormal, mesh.submeshes[i].hasSkinning,
                 mesh.submeshes[i].hasMorphTarget, mesh.submeshes[i].hasMorphNormal, mesh.submeshes[i].hasMorphTangent,
-                (terrain)?true:false, (instmesh)?true:false, gbufferHasMRTex);
+                (terrain)?true:false, (instmesh)?true:false, gbufferHasMRTex, p_terrainSurface && mesh.submeshes[i].hasNormal);
             mesh.submeshes[i].gbufferShader = ShaderPool::get(ShaderType::GBUFFER, mesh.submeshes[i].gbufferShaderProperties);
             if (!mesh.submeshes[i].gbufferShader->isCreated())
                 return false;
@@ -2750,6 +2888,9 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
 
         if (terrain){
             mesh.submeshes[i].slotVSTerrain = shaderData.getUniformBlockIndex(UniformBlockType::TERRAIN_VS_PARAMS);
+            if (p_terrainSurface){
+                mesh.submeshes[i].slotFSTerrainLayers = shaderData.getUniformBlockIndex(UniformBlockType::FS_TERRAIN_LAYERS);
+            }
 
             if (!loadTerrainTextures(entity, *terrain, mesh.submeshes[i].render, shaderData)){
                 return false;
@@ -2978,7 +3119,14 @@ bool RenderSystem::loadMesh(Entity entity, MeshComponent& mesh, uint8_t pipeline
             if (terrain){
                 mesh.submeshes[i].slotVSGBufferTerrain = gbufferShaderData.getUniformBlockIndex(UniformBlockType::DEPTH_TERRAIN_VS_PARAMS);
 
-                if (!loadTerrainHeightTexture(*terrain, gbufferRender, gbufferShaderData)){
+                // The painted G-buffer variant samples the layers too, so it binds the
+                // same blend maps and detail array the color pass does
+                if (p_terrainSurface && mesh.submeshes[i].hasNormal){
+                    mesh.submeshes[i].slotFSGBufferTerrainLayers = gbufferShaderData.getUniformBlockIndex(UniformBlockType::FS_TERRAIN_LAYERS);
+                    if (!loadTerrainTextures(entity, *terrain, gbufferRender, gbufferShaderData)){
+                        return false;
+                    }
+                }else if (!loadTerrainHeightTexture(*terrain, gbufferRender, gbufferShaderData)){
                     return false;
                 }
 
@@ -3149,7 +3297,7 @@ void RenderSystem::updateTerrainNodesBuffer(TerrainComponent& terrain, int viewI
     terrain.views[viewIndex].needUpdateNodesBuffer = false;
 }
 
-bool RenderSystem::drawMesh(MeshComponent& mesh, Transform& transform, CameraComponent& camera, Transform& camTransform, PipelineType pipType, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap, int terrainView){
+bool RenderSystem::drawMesh(Entity entity, MeshComponent& mesh, Transform& transform, CameraComponent& camera, Transform& camTransform, PipelineType pipType, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap, int terrainView){
     if (mesh.loaded && !mesh.needReload){
 
         if (terrain && terrain->needUpdateTexture){
@@ -3310,6 +3458,7 @@ bool RenderSystem::drawMesh(MeshComponent& mesh, Transform& transform, CameraCom
                 // morph from this view's eye position (paired with its node selection)
                 terrain->eyePos = terrain->views[terrainView].nodesEyePos;
                 render.applyUniformBlock(mesh.submeshes[i].slotVSTerrain, sizeof(float) * 8, &(terrain->eyePos));
+                applyTerrainLayersUniform(render, mesh.submeshes[i].slotFSTerrainLayers, entity, *terrain);
             }
 
             //model, normal and mvp matrix
@@ -3691,7 +3840,7 @@ bool RenderSystem::ensureGBufferFramebuffer(unsigned int width, unsigned int hei
     return gbufferFramebuffer.isCreated();
 }
 
-bool RenderSystem::drawMeshGBuffer(MeshComponent& mesh, const float cameraFar, const Plane frustumPlanes[6], vs_gbuffer_t vsGBufferParams, bool hasLocalProbe, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap){
+bool RenderSystem::drawMeshGBuffer(Entity entity, MeshComponent& mesh, const float cameraFar, const Plane frustumPlanes[6], vs_gbuffer_t vsGBufferParams, bool hasLocalProbe, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap){
     if (!mesh.loaded || mesh.needReload)
         return true;
 
@@ -3777,6 +3926,7 @@ bool RenderSystem::drawMeshGBuffer(MeshComponent& mesh, const float cameraFar, c
         if (terrain){
             terrain->eyePos = terrain->views[0].nodesEyePos;
             gbufferRender.applyUniformBlock(mesh.submeshes[i].slotVSGBufferTerrain, sizeof(float) * 8, &(terrain->eyePos));
+            applyTerrainLayersUniform(gbufferRender, mesh.submeshes[i].slotFSGBufferTerrainLayers, entity, *terrain);
             instanceCount = terrain->views[0].nodesbuffer[i].getCount();
             gbufferRender.replaceVertexBuffer(terrain->views[0].nodesbuffer[i].getRender(), terrain->views[0].nodesbuffer[i].getRender());
         }
@@ -3834,7 +3984,7 @@ void RenderSystem::renderGBufferPass(CameraComponent& camera){
         Matrix4 normalMatrix = viewModel.inverse().transpose();
 
         vs_gbuffer_t params = {transform.modelMatrix, renderVP, normalMatrix};
-        drawMeshGBuffer(mesh, camera.farClip, camera.frustumPlanes, params, hasLocalProbe, instmesh, terrain, tilemap);
+        drawMeshGBuffer(entity, mesh, camera.farClip, camera.frustumPlanes, params, hasLocalProbe, instmesh, terrain, tilemap);
     }
     gbufferPassRender.endRenderPass();
 }
@@ -4406,8 +4556,8 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
                 for (Texture& blendMap : terrain->blendMaps){
                     blendMap.destroy();
                 }
-                for (Texture& layer : terrain->textureLayers){
-                    layer.destroy();
+                for (TerrainSurfaceLayer& layer : terrain->surfaceLayers){
+                    forEachTerrainLayerTexture(layer, [](Texture& texture){ texture.destroy(); });
                 }
                 destroyTerrainDetailArray(entity);
             }
@@ -4447,6 +4597,7 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
         submesh.slotVSSkinning = -1;
         submesh.slotVSMorphTarget = -1;
         submesh.slotVSTerrain = -1;
+        submesh.slotFSTerrainLayers = -1;
 
         submesh.slotVSDepthParams = -1;
         submesh.slotVSDepthFade = -1;
@@ -4460,6 +4611,7 @@ void RenderSystem::destroyMesh(Entity entity, MeshComponent& mesh, bool clearAss
         submesh.slotVSGBufferSkinning = -1;
         submesh.slotVSGBufferMorphTarget = -1;
         submesh.slotVSGBufferTerrain = -1;
+        submesh.slotFSGBufferTerrainLayers = -1;
 
         submesh.customVSParams.clear();
         submesh.customFSParams.clear();
@@ -6854,6 +7006,15 @@ void RenderSystem::update(double dt){
                     mesh.needReload = true;
                 }
 
+                // A layer gains or loses its own surface from the editor, a script or an AI
+                // action, and only a reload can swap the terrain variant that reads it
+                if (terrain){
+                    const bool shaderTerrainSurface = (mesh.submeshes[s].shaderProperties & (1u << 27)) != 0;
+                    if (shaderTerrainSurface != hasTerrainSurfaceLayers(*terrain)){
+                        mesh.needReload = true;
+                    }
+                }
+
                 if (mesh.submeshes[s].needUpdateTexture){
                     if (terrain){
                         transform.needUpdate = true;
@@ -7637,9 +7798,9 @@ void RenderSystem::draw(){
 
                     if (!mesh.transparent || !distanceSort){
                         //Draw opaque meshes if transparency is not necessary
-                        drawMesh(mesh, transform, camera, cameraTransform, colorPip, instmesh, terrain, tilemap, terrainView);
+                        drawMesh(entity, mesh, transform, camera, cameraTransform, colorPip, instmesh, terrain, tilemap, terrainView);
                     }else{
-                        transparentRenders.push({TransparentRenderType::MESH, &mesh, nullptr, instmesh, terrain, tilemap, &transform, transform.distanceToCamera});
+                        transparentRenders.push({TransparentRenderType::MESH, entity, &mesh, nullptr, instmesh, terrain, tilemap, &transform, transform.distanceToCamera});
                     }
                 }
 
@@ -7664,7 +7825,7 @@ void RenderSystem::draw(){
                     if (!points.transparent || !distanceSort){
                         drawPoints(points, transform, camera, cameraTransform, colorPip);
                     }else{
-                        transparentRenders.push({TransparentRenderType::POINTS, nullptr, &points, nullptr, nullptr, nullptr, &transform, transform.distanceToCamera});
+                        transparentRenders.push({TransparentRenderType::POINTS, entity, nullptr, &points, nullptr, nullptr, nullptr, &transform, transform.distanceToCamera});
                     }
                 }
 
@@ -7688,7 +7849,7 @@ void RenderSystem::draw(){
             TransparentRenderData renderData = transparentRenders.top();
 
             if (renderData.type == TransparentRenderType::MESH){
-                drawMesh(*renderData.mesh, *renderData.transform, camera, cameraTransform, colorPip, renderData.instmesh, renderData.terrain, renderData.tilemap, terrainView);
+                drawMesh(renderData.entity, *renderData.mesh, *renderData.transform, camera, cameraTransform, colorPip, renderData.instmesh, renderData.terrain, renderData.tilemap, terrainView);
             }else if (renderData.type == TransparentRenderType::POINTS){
                 drawPoints(*renderData.points, *renderData.transform, camera, cameraTransform, colorPip);
             }

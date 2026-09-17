@@ -5267,6 +5267,48 @@ TilemapComponent editor::Stream::decodeTilemapComponent(const YAML::Node& node, 
     return tilemap;
 }
 
+YAML::Node editor::Stream::encodeTerrainSurfaceLayer(const TerrainSurfaceLayer& layer) {
+    YAML::Node node;
+    node["pbr"] = layer.pbr;
+    // An unassigned map writes nothing, so a plain color layer stays a two-line entry
+    auto texture = [&](const char* name, const Texture& value) {
+        if (!value.empty()) node[name] = encodeTexture(value);
+    };
+    texture("colorTexture", layer.colorTexture);
+    texture("normalTexture", layer.normalTexture);
+    texture("roughnessTexture", layer.roughnessTexture);
+    texture("metallicTexture", layer.metallicTexture);
+    texture("occlusionTexture", layer.occlusionTexture);
+    texture("heightTexture", layer.heightTexture);
+    node["colorFactor"] = encodeVector4(layer.colorFactor);
+    node["normalStrength"] = layer.normalStrength;
+    node["roughnessFactor"] = layer.roughnessFactor;
+    node["metallicFactor"] = layer.metallicFactor;
+    node["occlusionStrength"] = layer.occlusionStrength;
+    node["uvScale"] = encodeVector2(layer.uvScale);
+    node["uvOffset"] = encodeVector2(layer.uvOffset);
+    return node;
+}
+
+TerrainSurfaceLayer editor::Stream::decodeTerrainSurfaceLayer(const YAML::Node& node) {
+    TerrainSurfaceLayer layer;
+    if (node["pbr"]) layer.pbr = node["pbr"].as<bool>();
+    if (node["colorTexture"]) layer.colorTexture = decodeTexture(node["colorTexture"]);
+    if (node["normalTexture"]) layer.normalTexture = decodeTexture(node["normalTexture"]);
+    if (node["roughnessTexture"]) layer.roughnessTexture = decodeTexture(node["roughnessTexture"]);
+    if (node["metallicTexture"]) layer.metallicTexture = decodeTexture(node["metallicTexture"]);
+    if (node["occlusionTexture"]) layer.occlusionTexture = decodeTexture(node["occlusionTexture"]);
+    if (node["heightTexture"]) layer.heightTexture = decodeTexture(node["heightTexture"]);
+    if (node["colorFactor"]) layer.colorFactor = decodeVector4(node["colorFactor"]);
+    if (node["uvScale"]) layer.uvScale = decodeVector2(node["uvScale"]);
+    if (node["uvOffset"]) layer.uvOffset = decodeVector2(node["uvOffset"]);
+    layer.normalStrength = decodeFinite(node["normalStrength"], layer.normalStrength);
+    layer.roughnessFactor = decodeFinite(node["roughnessFactor"], layer.roughnessFactor);
+    layer.metallicFactor = decodeFinite(node["metallicFactor"], layer.metallicFactor);
+    layer.occlusionStrength = decodeFinite(node["occlusionStrength"], layer.occlusionStrength);
+    return layer;
+}
+
 YAML::Node editor::Stream::encodeTerrainFoliageLayer(const TerrainFoliageLayer& layer) {
     YAML::Node node;
     node["meshPath"] = layer.meshPath;
@@ -5313,10 +5355,10 @@ YAML::Node editor::Stream::encodeTerrainComponent(const TerrainComponent& terrai
     node["blendMaps"] = blendMapsNode;
 
     YAML::Node layersNode;
-    for (const Texture& layer : terrain.textureLayers) {
-        layersNode.push_back(encodeTexture(layer));
+    for (const TerrainSurfaceLayer& layer : terrain.surfaceLayers) {
+        layersNode.push_back(encodeTerrainSurfaceLayer(layer));
     }
-    node["textureLayers"] = layersNode;
+    node["surfaceLayers"] = layersNode;
     node["autoSetRanges"] = terrain.autoSetRanges;
     node["offset"] = encodeVector2(terrain.offset);
     node["terrainSize"] = terrain.terrainSize;
@@ -5363,19 +5405,27 @@ TerrainComponent editor::Stream::decodeTerrainComponent(const YAML::Node& node, 
         }
     }
 
-    terrain.textureLayers.clear();
-    if (node["textureLayers"] && node["textureLayers"].IsSequence()) {
-        for (std::size_t i = 0; i < node["textureLayers"].size(); i++) {
-            terrain.textureLayers.push_back(decodeTexture(node["textureLayers"][i]));
+    terrain.surfaceLayers.clear();
+    if (node["surfaceLayers"] && node["surfaceLayers"].IsSequence()) {
+        for (std::size_t i = 0; i < node["surfaceLayers"].size(); i++) {
+            terrain.surfaceLayers.push_back(decodeTerrainSurfaceLayer(node["surfaceLayers"][i]));
         }
     }
 
     // Backward compatibility: scenes saved before the terrain took lists named the single
-    // blend map and the first three layers. Remove this block with support for them.
+    // blend map and the first three layers, and before a layer was more than its color.
+    // Remove this block with support for them.
     if (node["blendMap"] && terrain.blendMaps.empty()) {
         terrain.blendMaps.push_back(decodeTexture(node["blendMap"]));
     }
-    if (terrain.textureLayers.empty()) {
+    if (terrain.surfaceLayers.empty() && node["textureLayers"] && node["textureLayers"].IsSequence()) {
+        for (std::size_t i = 0; i < node["textureLayers"].size(); i++) {
+            TerrainSurfaceLayer layer;
+            layer.colorTexture = decodeTexture(node["textureLayers"][i]);
+            terrain.surfaceLayers.push_back(layer);
+        }
+    }
+    if (terrain.surfaceLayers.empty()) {
         const char* legacyKeys[] = {"textureDetailRed", "textureDetailGreen", "textureDetailBlue"};
         int lastKey = -1;
         for (int i = 0; i < 3; i++) {
@@ -5383,15 +5433,17 @@ TerrainComponent editor::Stream::decodeTerrainComponent(const YAML::Node& node, 
         }
         // A missing key still holds its slot, or the layers after it would shift down
         for (int i = 0; i <= lastKey; i++) {
-            terrain.textureLayers.push_back(node[legacyKeys[i]] ? decodeTexture(node[legacyKeys[i]]) : Texture());
+            TerrainSurfaceLayer layer;
+            if (node[legacyKeys[i]]) layer.colorTexture = decodeTexture(node[legacyKeys[i]]);
+            terrain.surfaceLayers.push_back(layer);
         }
     }
 
     if (terrain.blendMaps.size() > MAX_TERRAIN_BLENDMAPS) {
         terrain.blendMaps.resize(MAX_TERRAIN_BLENDMAPS);
     }
-    if (terrain.textureLayers.size() > MAX_TERRAIN_LAYERS) {
-        terrain.textureLayers.resize(MAX_TERRAIN_LAYERS);
+    if (terrain.surfaceLayers.size() > MAX_TERRAIN_LAYERS) {
+        terrain.surfaceLayers.resize(MAX_TERRAIN_LAYERS);
     }
     if (node["autoSetRanges"]) terrain.autoSetRanges = node["autoSetRanges"].as<bool>();
     if (node["offset"]) terrain.offset = decodeVector2(node["offset"]);

@@ -6,6 +6,7 @@
 #include "Backend.h"
 #include "Catalog.h"
 #include "Out.h"
+#include "Stream.h"
 #include "Theme.h"
 #include "command/CommandHandle.h"
 #include "command/type/CreateEntityCmd.h"
@@ -17,6 +18,7 @@
 #include "external/IconsFontAwesome6.h"
 #include "subsystem/MeshSystem.h"
 #include "util/Angle.h"
+#include "util/Color.h"
 #include "util/FileDialogs.h"
 #include "util/TerrainMapFileWriter.h"
 #include "util/TerrainMapUtils.h"
@@ -36,6 +38,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <system_error>
@@ -2385,11 +2388,6 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
     const float labelHeight = ImGui::GetTextLineHeight();
     const float previewHeight = buttonSize.y * 2.0f + spacing.y;
 
-    auto setTextureLayers = [&](const std::vector<Texture>& layers){
-        CommandHandle::get(sceneProject->id)->addCommandNoMerge(new PropertyCmd<std::vector<Texture>>(
-            project, sceneProject->id, selectedEntity, ComponentType::TerrainComponent, "textureLayers", layers));
-    };
-
     // The whole vector is set at once, so assigning a layer can also grow it
     auto assignLayer = [&](int index, const fs::path& path){
         if (!path.empty() && !project->isInsideAssetsPath(path)){
@@ -2397,12 +2395,13 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
             return;
         }
         endStroke();
-        std::vector<Texture> layers = terrain.textureLayers;
+        std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
         if (index >= static_cast<int>(layers.size())){
             layers.resize(index + 1);
         }
-        layers[index] = path.empty() ? Texture() : Texture(project->normalizeToAssetsRelative(path).generic_string());
-        setTextureLayers(layers);
+        // Only the color changes: a PBR layer keeps the rest of its surface
+        layers[index].colorTexture = path.empty() ? Texture() : Texture(project->normalizeToAssetsRelative(path).generic_string());
+        setSurfaceLayers(layers);
     };
 
     // index is -1 for the base, whose texture belongs to the material, not the terrain
@@ -2416,6 +2415,17 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
         const bool selected = brushActive && (index < 0 ? brushMode == TerrainBrushMode::PaintBase
                                                        : (brushMode == TerrainBrushMode::PaintLayer && selectedTextureLayer == index));
         const float thumbSize = drawAssetThumbnail(path, "##thumb", selected, previewHeight / buttonSize.y);
+        // Marked on the preview, so the list shows at a glance which layers carry a surface
+        if (index >= 0 && terrain.surfaceLayers[index].pbr){
+            const float inset = ImGui::GetStyle().FramePadding.x * 0.5f;
+            const ImVec2 thumbMax = ImGui::GetItemRectMax();
+            const ImVec2 textSize = ImGui::CalcTextSize("PBR");
+            const ImVec2 badgeMax(thumbMax.x - inset, thumbMax.y - inset);
+            const ImVec2 badgeMin(badgeMax.x - textSize.x - inset * 2.0f, badgeMax.y - textSize.y);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(badgeMin, badgeMax, ImGui::GetColorU32(Theme::Colors::ButtonActivated), ImGui::GetStyle().FrameRounding);
+            drawList->AddText(ImVec2(badgeMin.x + inset, badgeMin.y), ImGui::GetColorU32(ImGuiCol_Text), "PBR");
+        }
         if (ImGui::IsItemClicked()){
             endStroke();
             brushMode = (index < 0) ? TerrainBrushMode::PaintBase : TerrainBrushMode::PaintLayer;
@@ -2426,7 +2436,7 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
         }
 
         const char* emptyLabel = (index >= 0) ? "No texture" : "Material base color";
-        const float detailsWidth = std::max(ImGui::CalcTextSize(emptyLabel).x, buttonSize.x * 2.0f + detailsSpacing.x);
+        const float detailsWidth = std::max(ImGui::CalcTextSize(emptyLabel).x, buttonSize.x * 3.0f + detailsSpacing.x * 2.0f);
         if (available >= thumbSize + spacing.x + detailsWidth){
             ImGui::SameLine(0.0f, spacing.x);
             const float detailsHeight = labelHeight + ((index >= 0) ? detailsSpacing.y + buttonSize.y : 0.0f);
@@ -2460,16 +2470,31 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
                 assignLayer(index, {});
             }
             ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (iconButton(ICON_FA_SLIDERS, "surface", "Layer surface properties", ImGui::IsPopupOpen("surface"), buttonSize)){
+                ImGui::OpenPopup("surface");
+            }
         }
         ImGui::PopStyleVar();
         ImGui::EndGroup();
         ImGui::EndGroup();
 
+        if (index >= 0){
+            ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 24.0f, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+            if (ImGui::BeginPopup("surface")){
+                drawLayerSurface(terrain, index);
+                ImGui::EndPopup();
+            }
+        }
+
+        // An image is the layer color; a material fills every map it can
         if (index >= 0 && ImGui::BeginDragDropTarget()){
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("resource_files")){
                 const std::vector<std::string> dropped = Util::getStringsFromPayload(payload);
                 if (!dropped.empty() && Util::isImageFile(dropped[0])){
                     assignLayer(index, dropped[0]);
+                }else if (!dropped.empty() && Util::isMaterialFile(dropped[0])){
+                    applyLayerMaterial(terrain, index, dropped[0]);
                 }
             }
             ImGui::EndDragDropTarget();
@@ -2486,11 +2511,11 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
 
     layerRow("Base", "The material's base color. Painting it clears the blend map the selected layer sits on.", basePath, -1);
 
-    const int layerCount = static_cast<int>(terrain.textureLayers.size());
+    const int layerCount = static_cast<int>(terrain.surfaceLayers.size());
     for (int i = 0; i < layerCount; i++){
         const std::string label = "Layer " + std::to_string(i + 1);
         layerRow(label.c_str(), "Click to paint this layer. Every three layers share a blend map.",
-                 terrain.textureLayers[i].getPath(0), i);
+                 terrain.surfaceLayers[i].colorTexture.getPath(0), i);
     }
 
     terrainPropertyRow("Layers", "Up to nine, three per blend map.");
@@ -2498,21 +2523,210 @@ void editor::TerrainEditWindow::drawTextureLayers(TerrainComponent& terrain){
     ImGui::BeginDisabled(layerCount >= MAX_TERRAIN_LAYERS);
     if (iconButton(ICON_FA_PLUS, "add_texture_layer", "Add texture layer", false, commandSize)){
         endStroke();
-        std::vector<Texture> layers = terrain.textureLayers;
+        std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
         layers.resize(layers.size() + 1);
-        setTextureLayers(layers);
+        setSurfaceLayers(layers);
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(layerCount == 0);
     if (iconButton(ICON_FA_TRASH_CAN, "remove_texture_layer", "Remove the last texture layer", false, commandSize)){
         endStroke();
-        std::vector<Texture> layers = terrain.textureLayers;
+        std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
         layers.pop_back();
-        setTextureLayers(layers);
+        setSurfaceLayers(layers);
         selectedTextureLayer = std::clamp(selectedTextureLayer, 0, std::max(0, static_cast<int>(layers.size()) - 1));
     }
     ImGui::EndDisabled();
+}
+
+// Merging is for values dragged in the UI, so one drag is one undo step
+bool editor::TerrainEditWindow::setSurfaceLayers(const std::vector<TerrainSurfaceLayer>& layers, bool merge){
+    SceneProject* sceneProject = getTargetSceneProject();
+    if (!sceneProject){
+        return false;
+    }
+    auto* command = new PropertyCmd<std::vector<TerrainSurfaceLayer>>(
+        project, sceneProject->id, selectedEntity, ComponentType::TerrainComponent, "surfaceLayers", layers);
+    if (merge){
+        CommandHandle::get(sceneProject->id)->addCommand(command);
+    }else{
+        CommandHandle::get(sceneProject->id)->addCommandNoMerge(command);
+    }
+    return true;
+}
+
+// A material is copied into the layer, not linked: the asset system has no way to keep a
+// live reference here, and the layer only renders part of what a material can hold.
+void editor::TerrainEditWindow::applyLayerMaterial(TerrainComponent& terrain, int index, const std::string& materialPath){
+    if (index < 0){
+        return;
+    }
+
+    Material material;
+    try{
+        material = Stream::decodeMaterial(YAML::LoadFile((project->getProjectPath() / materialPath).string()));
+    }catch (const std::exception& e){
+        Out::error("Failed to read material '%s': %s", materialPath.c_str(), e.what());
+        return;
+    }
+
+    endStroke();
+    std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
+    if (index >= static_cast<int>(layers.size())){
+        layers.resize(index + 1);
+    }
+
+    layers[index] = terrainLayerFromMaterial(material, layers[index]);
+    setSurfaceLayers(layers);
+
+    if (!material.emissiveTexture.empty() || material.emissiveFactor != Vector3(0, 0, 0)){
+        Out::info("Terrain layers do not render emission, so it was left out of layer %d", index + 1);
+    }
+}
+
+// The property sheet behind a layer's surface button. A color layer shows only what it
+// can use; the rest appears once it is a PBR layer.
+void editor::TerrainEditWindow::drawLayerSurface(TerrainComponent& terrain, int index){
+    if (index < 0 || index >= static_cast<int>(terrain.surfaceLayers.size())){
+        return;
+    }
+
+    const TerrainSurfaceLayer& layer = terrain.surfaceLayers[index];
+    const ImVec2 buttonSize(ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+
+    auto edit = [&](const std::function<void(TerrainSurfaceLayer&)>& change, bool merge = false){
+        endStroke();
+        std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
+        change(layers[index]);
+        setSurfaceLayers(layers, merge);
+    };
+
+    auto assignMap = [&](Texture TerrainSurfaceLayer::*map, const std::string& file){
+        if (!project->isInsideAssetsPath(file)){
+            Backend::getApp().registerOutsideAssetsAlert(file);
+            return;
+        }
+        const std::string relative = project->normalizeToAssetsRelative(file).generic_string();
+        edit([&](TerrainSurfaceLayer& target){ target.*map = Texture(relative); });
+    };
+
+    auto mapRow = [&](const char* label, const char* tooltip, Texture TerrainSurfaceLayer::*map){
+        terrainPropertyRow(label, tooltip);
+        ImGui::PushID(label);
+        const std::string path = (layer.*map).getPath(0);
+        const float fieldWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - (buttonSize.x + spacing) * 2.0f);
+
+        // Read-only field rather than plain text: it lines up with the buttons beside it
+        // and clips a long file name on its own
+        char name[256];
+        snprintf(name, sizeof(name), "%s", path.empty() ? "" : fs::path(path).filename().string().c_str());
+        ImGui::SetNextItemWidth(fieldWidth);
+        ImGui::InputTextWithHint("##map", "None", name, sizeof(name), ImGuiInputTextFlags_ReadOnly);
+        if (!path.empty()){
+            showTooltip(path.c_str());
+        }
+        if (ImGui::BeginDragDropTarget()){
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("resource_files")){
+                const std::vector<std::string> dropped = Util::getStringsFromPayload(payload);
+                if (!dropped.empty() && Util::isImageFile(dropped[0])){
+                    assignMap(map, dropped[0]);
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        ImGui::SameLine();
+        if (iconButton(ICON_FA_FOLDER_OPEN, "browse", "Choose map", false, buttonSize)){
+            const std::string chosen = FileDialogs::openFileDialog(project->getAssetsPath().string(), FILE_DIALOG_IMAGE);
+            if (!chosen.empty()){
+                assignMap(map, chosen);
+            }
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(path.empty());
+        if (iconButton(ICON_FA_XMARK, "clear", "Clear map", false, buttonSize)){
+            edit([&](TerrainSurfaceLayer& target){ target.*map = Texture(); });
+        }
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    };
+
+    auto factorRow = [&](const char* label, const char* tooltip, float TerrainSurfaceLayer::*factor, float maxValue){
+        terrainPropertyRow(label, tooltip);
+        ImGui::PushID(label);
+        float value = layer.*factor;
+        if (ImGui::SliderFloat("##factor", &value, 0.0f, maxValue, "%.2f", ImGuiSliderFlags_AlwaysClamp)){
+            edit([&](TerrainSurfaceLayer& target){ target.*factor = value; }, true);
+        }
+        ImGui::PopID();
+    };
+
+    ImGui::SeparatorText(("Layer " + std::to_string(index + 1)).c_str());
+    if (beginTerrainProperties("layer_surface")){
+        terrainPropertyRow("Enable PBR", "Off blends only this layer's color and leaves the rest to the terrain material. On gives the layer its own normal, roughness, metallic and occlusion.");
+        bool pbr = layer.pbr;
+        if (ImGui::Checkbox("##pbr", &pbr)){
+            edit([&](TerrainSurfaceLayer& target){ target.pbr = pbr; });
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button(ICON_FA_FILE_IMPORT " Copy from material", ImVec2(-1, 0))){
+        const std::string chosen = FileDialogs::openFileDialog(project->getProjectPath().string(), FILE_DIALOG_MATERIAL);
+        if (!chosen.empty()){
+            std::error_code ec;
+            const fs::path relative = fs::relative(chosen, project->getProjectPath(), ec);
+            if (!ec){
+                applyLayerMaterial(terrain, index, relative.lexically_normal().generic_string());
+            }
+        }
+    }
+    showTooltip("Fill this layer from a material file. Emission and transparency are not copied.");
+
+    // Tiling rides on every layer, so only the maps below wait for the PBR surface
+    if (layer.pbr){
+        ImGui::SeparatorText("Surface Maps");
+        if (beginTerrainProperties("layer_maps")){
+            terrainPropertyRow("Tint", "Multiplies the layer color");
+            Vector4 tint = Color::linearTosRGB(layer.colorFactor);
+            if (ImGui::ColorEdit4("##tint", &tint.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel |
+                                  ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf)){
+                const Vector4 linear = Color::sRGBToLinear(tint);
+                edit([&](TerrainSurfaceLayer& target){ target.colorFactor = linear; }, true);
+            }
+
+            mapRow("Normal", "Tangent-space normal map, projected with the layer", &TerrainSurfaceLayer::normalTexture);
+            factorRow("Normal Strength", "How far the normal map tilts the surface", &TerrainSurfaceLayer::normalStrength, 2.0f);
+            mapRow("Roughness", "Read from green, or from the only channel of a grayscale map", &TerrainSurfaceLayer::roughnessTexture);
+            factorRow("Roughness Factor", "Multiplies the roughness map", &TerrainSurfaceLayer::roughnessFactor, 1.0f);
+            mapRow("Metallic", "Read from blue, or from the only channel of a grayscale map", &TerrainSurfaceLayer::metallicTexture);
+            factorRow("Metallic Factor", "Multiplies the metallic map", &TerrainSurfaceLayer::metallicFactor, 1.0f);
+            mapRow("Occlusion", "Read from red. White is unoccluded", &TerrainSurfaceLayer::occlusionTexture);
+            factorRow("Occlusion Strength", "How far the occlusion map darkens ambient light", &TerrainSurfaceLayer::occlusionStrength, 1.0f);
+            mapRow("Height", "Biases the blend toward this layer where it is taller. It never moves geometry", &TerrainSurfaceLayer::heightTexture);
+            ImGui::EndTable();
+        }
+    }
+
+    ImGui::SeparatorText("Tiling");
+    if (beginTerrainProperties("layer_tiling")){
+        terrainPropertyRow("UV Scale", "Multiplies the shared detail tiling for this layer alone");
+        Vector2 uvScale = layer.uvScale;
+        if (ImGui::DragFloat2("##uv_scale", &uvScale.x, 0.01f, 0.0f, 0.0f, "%.2f")){
+            edit([&](TerrainSurfaceLayer& target){ target.uvScale = uvScale; }, true);
+        }
+
+        terrainPropertyRow("UV Offset", "Shifts this layer inside its tile");
+        Vector2 uvOffset = layer.uvOffset;
+        if (ImGui::DragFloat2("##uv_offset", &uvOffset.x, 0.01f, 0.0f, 0.0f, "%.2f")){
+            edit([&](TerrainSurfaceLayer& target){ target.uvOffset = uvOffset; }, true);
+        }
+        ImGui::EndTable();
+    }
 }
 
 void editor::TerrainEditWindow::drawFoliageMesh(const TerrainFoliageLayer& layer){
@@ -2819,7 +3033,7 @@ void editor::TerrainEditWindow::show(){
     ImGui::Spacing();
     const int layerCount = static_cast<int>(terrain.foliageLayers.size());
     selectedFoliageLayer = std::clamp(selectedFoliageLayer, 0, std::max(0, layerCount - 1));
-    selectedTextureLayer = std::clamp(selectedTextureLayer, 0, std::max(0, static_cast<int>(terrain.textureLayers.size()) - 1));
+    selectedTextureLayer = std::clamp(selectedTextureLayer, 0, std::max(0, static_cast<int>(terrain.surfaceLayers.size()) - 1));
     const ImVec2 buttonSize(ImGui::GetFrameHeight(), ImGui::GetFrameHeight());
     const ImVec2 commandSize = commandButtonSize();
     const float spacing = ImGui::GetStyle().ItemSpacing.x;

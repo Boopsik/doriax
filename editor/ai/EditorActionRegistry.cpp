@@ -613,16 +613,24 @@ const std::vector<ToolDefinition>& cachedTools() {
         },
         {
             "set_terrain_textures",
-            "Assign terrain base/blend/detail texture paths through undoable property commands. Every path must be inside the assets directory (get_project_summary reports it as assets_dir).",
+            "Assign terrain height/blend maps and painted layer maps through undoable property commands. Every path must be inside the assets directory (get_project_summary reports it as assets_dir). A layer blends only its color until layer_pbr turns it into a PBR layer, which brings its own normal, roughness, metallic and occlusion.",
             objectSchema({
                 {"scene_id", integerSchema("Scene id. Omit to use the selected scene")},
                 {"entity_id", integerSchema("Terrain entity id")},
                 {"entity_name", stringSchema("Terrain entity name, used only when entity_id is omitted")},
                 {"heightmap_path", stringSchema("Optional project-relative heightmap texture path")},
                 {"blendmap_path", stringSchema("Optional project-relative blendmap texture path")},
-                {"detail_red_path", stringSchema("Optional project-relative detail texture path for blend red")},
-                {"detail_green_path", stringSchema("Optional project-relative detail texture path for blend green")},
-                {"detail_blue_path", stringSchema("Optional project-relative detail texture path for blend blue")}
+                {"detail_red_path", stringSchema("Optional project-relative color texture path for layer 1")},
+                {"detail_green_path", stringSchema("Optional project-relative color texture path for layer 2")},
+                {"detail_blue_path", stringSchema("Optional project-relative color texture path for layer 3")},
+                {"layer_index", integerSchema("Painted layer to edit, 0-8. Required by the layer_* fields")},
+                {"layer_pbr", boolSchema("True gives the layer its own surface maps")},
+                {"layer_color_path", stringSchema("Optional project-relative layer base color texture path")},
+                {"layer_normal_path", stringSchema("Optional project-relative layer normal map path")},
+                {"layer_roughness_path", stringSchema("Optional project-relative layer roughness map path, read from green")},
+                {"layer_metallic_path", stringSchema("Optional project-relative layer metallic map path, read from blue")},
+                {"layer_occlusion_path", stringSchema("Optional project-relative layer occlusion map path, read from red")},
+                {"layer_height_path", stringSchema("Optional project-relative layer height map path, used only for blending")}
             }),
             false
         },

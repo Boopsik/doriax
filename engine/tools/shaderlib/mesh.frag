@@ -218,6 +218,8 @@ const float M_PI = 3.141592653589793;
     #include "includes/lighting2d.glsl"
 #endif
 #ifdef HAS_TERRAIN
+    // lets the include adapt the MaterialInfo declared above
+    #define TERRAIN_MATERIAL_INFO
     #include "includes/terrain_fs.glsl"
 #endif
 #ifdef HAS_FOG
@@ -237,8 +239,11 @@ void main() {
         baseColor = pbrParams.baseColorFactor * sRGBToLinear(texture(sampler2D(u_baseColorTexture, u_baseColor_smp), mirrorUV)) * getVertexColor();
     #endif
 
-    #ifdef HAS_TERRAIN
+    #if defined(HAS_TERRAIN) && !defined(HAS_TERRAIN_PBR)
         baseColor = getTerrainColor(baseColor);
+    #elif defined(HAS_TERRAIN_PBR) && defined(MATERIAL_UNLIT)
+        // unlit shows the one thing a painted layer still means here
+        baseColor = getTerrainSurface(baseColor, vec3(0.0, 1.0, 0.0), 1.0, 0.0).color;
     #endif
 
     #ifdef ALPHA_MASK
@@ -276,6 +281,15 @@ void main() {
         float f0_ior = 0.04;
 
         materialInfo = getMetallicRoughnessInfo(materialInfo, f0_ior);
+
+        #ifdef HAS_TERRAIN_PBR
+            // painted layers own the whole surface, so it is evaluated once and applied here
+            TerrainSurface terrainSurface = getTerrainSurface(baseColor, n, materialInfo.perceptualRoughness, materialInfo.metallic);
+            baseColor = terrainSurface.color;
+            materialInfo.baseColor = baseColor.rgb;
+            materialInfo = applyTerrainSurface(materialInfo, terrainSurface, f0_ior);
+            n = terrainSurface.normal;
+        #endif
 
         materialInfo.perceptualRoughness = clamp(materialInfo.perceptualRoughness, 0.0, 1.0);
         materialInfo.metallic = clamp(materialInfo.metallic, 0.0, 1.0);
@@ -321,6 +335,11 @@ void main() {
             f_diffuse = mix(f_diffuse, f_diffuse * ao, occlusionStrength);
             // apply ambient occlusion too all lighting that is not punctual
             f_specular = mix(f_specular, f_specular * ao, occlusionStrength);
+        #endif
+
+        #ifdef HAS_TERRAIN_PBR
+            f_diffuse *= terrainSurface.occlusion;
+            f_specular *= terrainSurface.occlusion;
         #endif
 
         #ifdef USE_SSAO

@@ -186,6 +186,10 @@ void main() {
     #endif
     #endif
 
+    #if defined(HAS_TERRAIN_PBR) && defined(HAS_NORMALS)
+        setTerrainShadingAxes(pbrParams.normalMatrix);
+    #endif
+
     #ifdef HAS_UV_SET1
         v_uv1 = vec2(0.0, 0.0);
     #endif

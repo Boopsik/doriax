@@ -296,6 +296,8 @@ namespace doriax::editor {
         static YAML::Node encodeTilemapComponent(const TilemapComponent& tilemap);
         static TilemapComponent decodeTilemapComponent(const YAML::Node& node, const TilemapComponent* oldTilemap = nullptr);
 
+        static YAML::Node encodeTerrainSurfaceLayer(const TerrainSurfaceLayer& layer);
+        static TerrainSurfaceLayer decodeTerrainSurfaceLayer(const YAML::Node& node);
         static YAML::Node encodeTerrainFoliageLayer(const TerrainFoliageLayer& layer);
         static TerrainFoliageLayer decodeTerrainFoliageLayer(const YAML::Node& node);
         static YAML::Node encodeTerrainComponent(const TerrainComponent& terrain);

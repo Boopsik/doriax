@@ -56,6 +56,13 @@ namespace doriax{
 		Vector4 atlasInfo;                       // x = 1/atlasWidth, y = 1/MAX_LIGHTS_2D, z = atlasWidth, w = PCF tap radius
 	} fs_lighting2d_t;
 
+	typedef struct fs_terrain_layers_t {
+		Vector4 colorFactor[MAX_TERRAIN_LAYERS]; // rgb = linear tint, w = 1 on a PBR layer
+		Vector4 uvTransform[MAX_TERRAIN_LAYERS]; // xy = detail tiling scale, zw = offset
+		Vector4 surface[MAX_TERRAIN_LAYERS];     // roughness, metallic, normal strength, occlusion strength
+		Vector4 slices[MAX_TERRAIN_LAYERS];      // color, normal and packed surface slice (-1 = none)
+	} fs_terrain_layers_t;
+
 	typedef struct fs_reflection_probe_t {
 		Vector4 position_weight; // xyz = capture position, w = local probe blend weight
 		Vector4 boxMin_intensity; // xyz = influence AABB min, w = intensity
@@ -159,6 +166,8 @@ namespace doriax{
 
 		struct TransparentRenderData{
 			TransparentRenderType type;
+			// the terrain layer uniforms are looked up by entity, so the sorted draw keeps it
+			Entity entity;
 			MeshComponent* mesh;
 			PointsComponent* points;
 			InstancedMeshComponent* instmesh;
@@ -473,11 +482,17 @@ namespace doriax{
 		void updateShadowBindings();
 		bool loadDepthTexture(Material& material, ShaderData& shaderData, ObjectRender& render);
 		bool loadGBufferTextures(Material& material, ShaderData& shaderData, ObjectRender& render);
-		// The detail layers upload as one array texture, so they cost a single bind slot no
-		// matter how many there are. Kept here, not on the component, which stays copiable.
+		// Every map of every layer is a slice of one array texture, so the whole terrain
+		// costs a single bind slot. Kept here, not on the component, which stays copiable.
 		struct TerrainDetailArray{
 			TextureRender render;
-			std::vector<std::string> paths;
+			// what each slice was built from, in array order
+			std::vector<std::string> sliceKeys;
+			// how many leading slices hold layer colors (rounded up to whole blend maps)
+			int colorSlices = 0;
+			// where a layer's normal and packed surface slices landed, -1 when it has none
+			std::array<int, MAX_TERRAIN_LAYERS> normalSlice;
+			std::array<int, MAX_TERRAIN_LAYERS> surfaceSlice;
 			// one sampler serves every slice, so its settings are part of what the cache holds
 			TextureFilter minFilter = TextureFilter::LINEAR;
 			TextureFilter magFilter = TextureFilter::LINEAR;
@@ -489,6 +504,7 @@ namespace doriax{
 
 		TerrainDetailArray* getTerrainDetailArray(Entity entity, TerrainComponent& terrain);
 		void destroyTerrainDetailArray(Entity entity);
+		void applyTerrainLayersUniform(ObjectRender& render, int slot, Entity entity, TerrainComponent& terrain);
 		bool loadTerrainTextures(Entity entity, TerrainComponent& terrain, ObjectRender& render, ShaderData& shaderData);
 		bool loadTerrainHeightTexture(TerrainComponent& terrain, ObjectRender& render, ShaderData& shaderData);
 		bool updateTerrainRenderTextures(Entity entity, TerrainComponent& terrain, MeshComponent& mesh);
@@ -510,7 +526,7 @@ namespace doriax{
 
 		void updateMeshBuffers(MeshComponent& mesh);
 		void updateTerrainNodesBuffer(TerrainComponent& terrain, int viewIndex);
-		bool drawMesh(MeshComponent& mesh, Transform& transform, CameraComponent& camera, Transform& camTransform, PipelineType pipType, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap, int terrainView = 0);
+		bool drawMesh(Entity entity, MeshComponent& mesh, Transform& transform, CameraComponent& camera, Transform& camTransform, PipelineType pipType, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap, int terrainView = 0);
 		bool drawMeshDepth(MeshComponent& mesh, const float cameraFar, const Plane frustumPlanes[6], vs_depth_t vsDepthParams, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap, bool forSSAO = false, PipelineType pipelineType = PIP_DEPTH);
 		void destroyMesh(Entity entity, MeshComponent& mesh, bool clearAssets = false);
 
@@ -530,7 +546,7 @@ namespace doriax{
 		// G-buffer geometry pass for SSR: MRT packed depth + view-space normal/roughness/metallic
 		bool ensureGBufferFramebuffer(unsigned int width, unsigned int height);
 		void renderGBufferPass(CameraComponent& camera);
-		bool drawMeshGBuffer(MeshComponent& mesh, const float cameraFar, const Plane frustumPlanes[6], vs_gbuffer_t vsGBufferParams, bool hasLocalProbe, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap);
+		bool drawMeshGBuffer(Entity entity, MeshComponent& mesh, const float cameraFar, const Plane frustumPlanes[6], vs_gbuffer_t vsGBufferParams, bool hasLocalProbe, InstancedMeshComponent* instmesh, TerrainComponent* terrain, TilemapComponent* tilemap);
 		// destination == nullptr renders the composite to the swapchain (backbuffer)
 		void renderSSR(CameraComponent& camera, FramebufferRender* destination);
 

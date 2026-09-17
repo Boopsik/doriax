@@ -7941,15 +7941,41 @@ void editor::Properties::drawTerrainComponent(ComponentType cpType, SceneProject
         endTable();
     }
 
-    if (!terrain.textureLayers.empty()){
+    if (!terrain.surfaceLayers.empty()){
+        RowSettings settingsLayerFloat;
+        settingsLayerFloat.secondColSize = 6 * ImGui::GetFontSize();
+
         ImGui::SeparatorText("Layers");
-        beginTable(cpType, getLabelSize("Layer 1"), "terrain_layers");
-        for (size_t i = 0; i < terrain.textureLayers.size(); i++){
-            const std::string property = "textureLayers[" + std::to_string(i) + "]";
+        for (size_t i = 0; i < terrain.surfaceLayers.size(); i++){
+            const std::string property = "surfaceLayers[" + std::to_string(i) + "]";
             const std::string label = "Layer " + std::to_string(i + 1);
-            propertyRow(RowPropertyType::Texture, cpType, property, label, sceneProject, entities, textureSettings);
+            if (!ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)){
+                continue;
+            }
+            ImGui::PushID((int)i);
+            beginTable(cpType, getLabelSize("Occlusion Strength"), "terrain_layer");
+            propertyRow(RowPropertyType::Bool, cpType, property + ".pbr", "Enable PBR", sceneProject, entities, textureSettings);
+            propertyRow(RowPropertyType::Texture, cpType, property + ".colorTexture", "Color", sceneProject, entities, textureSettings);
+            // A color layer blends its texture as it is; the rest belongs to PBR layers
+            if (terrain.surfaceLayers[i].pbr){
+                propertyRow(RowPropertyType::Color4L, cpType, property + ".colorFactor", "Tint", sceneProject, entities, textureSettings);
+                propertyRow(RowPropertyType::Texture, cpType, property + ".normalTexture", "Normal", sceneProject, entities, textureSettings);
+                propertyRow(RowPropertyType::Float, cpType, property + ".normalStrength", "Normal Strength", sceneProject, entities, settingsLayerFloat);
+                propertyRow(RowPropertyType::Texture, cpType, property + ".roughnessTexture", "Roughness", sceneProject, entities, textureSettings);
+                propertyRow(RowPropertyType::Float_0_1, cpType, property + ".roughnessFactor", "Roughness Factor", sceneProject, entities, settingsLayerFloat);
+                propertyRow(RowPropertyType::Texture, cpType, property + ".metallicTexture", "Metallic", sceneProject, entities, textureSettings);
+                propertyRow(RowPropertyType::Float_0_1, cpType, property + ".metallicFactor", "Metallic Factor", sceneProject, entities, settingsLayerFloat);
+                propertyRow(RowPropertyType::Texture, cpType, property + ".occlusionTexture", "Occlusion", sceneProject, entities, textureSettings);
+                propertyRow(RowPropertyType::Float_0_1, cpType, property + ".occlusionStrength", "Occlusion Strength", sceneProject, entities, settingsLayerFloat);
+                propertyRow(RowPropertyType::Texture, cpType, property + ".heightTexture", "Height", sceneProject, entities, textureSettings);
+            }
+            // Tiling rides on every layer, PBR or not
+            propertyRow(RowPropertyType::Vector2, cpType, property + ".uvScale", "UV Scale", sceneProject, entities, settingsLayerFloat);
+            propertyRow(RowPropertyType::Vector2, cpType, property + ".uvOffset", "UV Offset", sceneProject, entities, settingsLayerFloat);
+            endTable();
+            ImGui::PopID();
+            ImGui::TreePop();
         }
-        endTable();
     }
 
     RowSettings settingsFloat;

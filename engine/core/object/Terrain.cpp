@@ -80,12 +80,66 @@ void Terrain::setTextureLayer(unsigned int index, const std::string& path){
         Log::error("Terrain has no layer %u, the limit is %d", index, MAX_TERRAIN_LAYERS);
         return;
     }
-    if (index >= terrain.textureLayers.size()){
-        terrain.textureLayers.resize(index + 1);
+    if (index >= terrain.surfaceLayers.size()){
+        terrain.surfaceLayers.resize(index + 1);
     }
-    terrain.textureLayers[index].setPath(path);
+    terrain.surfaceLayers[index].colorTexture.setPath(path);
 
     terrain.needUpdateTexture = true;
+}
+
+void Terrain::setSurfaceLayer(unsigned int index, const TerrainSurfaceLayer& layer){
+    TerrainComponent& terrain = getComponent<TerrainComponent>();
+
+    if (index >= MAX_TERRAIN_LAYERS){
+        Log::error("Terrain has no layer %u, the limit is %d", index, MAX_TERRAIN_LAYERS);
+        return;
+    }
+    if (index >= terrain.surfaceLayers.size()){
+        terrain.surfaceLayers.resize(index + 1);
+    }
+    terrain.surfaceLayers[index] = layer;
+
+    terrain.needUpdateTexture = true;
+}
+
+TerrainSurfaceLayer Terrain::getSurfaceLayer(unsigned int index) const{
+    TerrainComponent& terrain = getComponent<TerrainComponent>();
+
+    if (index >= terrain.surfaceLayers.size()){
+        Log::error("Terrain has no layer %u", index);
+        return TerrainSurfaceLayer();
+    }
+
+    return terrain.surfaceLayers[index];
+}
+
+// Emission, alpha and secondary UV sets have no meaning on a terrain layer and are dropped
+void Terrain::setLayerFromMaterial(unsigned int index, const Material& material){
+    TerrainComponent& terrain = getComponent<TerrainComponent>();
+    const TerrainSurfaceLayer previous = (index < terrain.surfaceLayers.size()) ? terrain.surfaceLayers[index] : TerrainSurfaceLayer();
+
+    setSurfaceLayer(index, terrainLayerFromMaterial(material, previous));
+}
+
+// Blend map channels are positional: every later layer moves down one channel, onto the
+// paint the removed one leaves behind. Only dropping the last layer is lossless.
+void Terrain::removeSurfaceLayer(unsigned int index){
+    TerrainComponent& terrain = getComponent<TerrainComponent>();
+
+    if (index >= terrain.surfaceLayers.size()){
+        Log::error("Terrain has no layer %u", index);
+        return;
+    }
+    terrain.surfaceLayers.erase(terrain.surfaceLayers.begin() + index);
+
+    terrain.needUpdateTexture = true;
+}
+
+unsigned int Terrain::getNumLayers() const{
+    TerrainComponent& terrain = getComponent<TerrainComponent>();
+
+    return (unsigned int)terrain.surfaceLayers.size();
 }
 
 // The first three layers, under the names they had when a blend map was the only one

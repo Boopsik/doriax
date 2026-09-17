@@ -136,6 +136,7 @@ namespace doriax{
         DEPTH_VS_MORPHTARGET,
         TERRAIN_VS_PARAMS,
         DEPTH_TERRAIN_VS_PARAMS,
+        FS_TERRAIN_LAYERS,
         SSAO_FS_PARAMS,
         SSAO_BLUR_FS_PARAMS,
         SSR_FS_PARAMS,

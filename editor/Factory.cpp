@@ -1273,9 +1273,26 @@ std::string editor::Factory::createTerrainComponent(int indentSpaces, EntityRegi
     for (size_t i = 0; i < terrain.blendMaps.size(); i++){
         code << formatTexture(indentSpaces, terrain.blendMaps[i], "terrain.blendMaps[" + std::to_string(i) + "]", projectPath);
     }
-    code << ind << "terrain.textureLayers.resize(" << terrain.textureLayers.size() << ");\n";
-    for (size_t i = 0; i < terrain.textureLayers.size(); i++){
-        code << formatTexture(indentSpaces, terrain.textureLayers[i], "terrain.textureLayers[" + std::to_string(i) + "]", projectPath);
+    code << ind << "terrain.surfaceLayers.resize(" << terrain.surfaceLayers.size() << ");\n";
+    for (size_t i = 0; i < terrain.surfaceLayers.size(); i++){
+        const TerrainSurfaceLayer& layer = terrain.surfaceLayers[i];
+        const std::string var = "terrain.surfaceLayers[" + std::to_string(i) + "]";
+        if (layer.pbr){
+            code << ind << var << ".pbr = true;\n";
+        }
+        code << formatTexture(indentSpaces, layer.colorTexture, var + ".colorTexture", projectPath);
+        code << formatTexture(indentSpaces, layer.normalTexture, var + ".normalTexture", projectPath);
+        code << formatTexture(indentSpaces, layer.roughnessTexture, var + ".roughnessTexture", projectPath);
+        code << formatTexture(indentSpaces, layer.metallicTexture, var + ".metallicTexture", projectPath);
+        code << formatTexture(indentSpaces, layer.occlusionTexture, var + ".occlusionTexture", projectPath);
+        code << formatTexture(indentSpaces, layer.heightTexture, var + ".heightTexture", projectPath);
+        code << ind << var << ".colorFactor = " << formatVector4(layer.colorFactor) << ";\n";
+        code << ind << var << ".normalStrength = " << formatFloat(layer.normalStrength) << ";\n";
+        code << ind << var << ".roughnessFactor = " << formatFloat(layer.roughnessFactor) << ";\n";
+        code << ind << var << ".metallicFactor = " << formatFloat(layer.metallicFactor) << ";\n";
+        code << ind << var << ".occlusionStrength = " << formatFloat(layer.occlusionStrength) << ";\n";
+        code << ind << var << ".uvScale = " << formatVector2(layer.uvScale) << ";\n";
+        code << ind << var << ".uvOffset = " << formatVector2(layer.uvOffset) << ";\n";
     }
     code << ind << "terrain.autoSetRanges = " << formatBool(terrain.autoSetRanges) << ";\n";
     code << ind << "terrain.offset = " << formatVector2(terrain.offset) << ";\n";

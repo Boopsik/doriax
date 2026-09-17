@@ -194,6 +194,9 @@ namespace doriax::editor{
         void drawMapSettings(const TerrainMapRef& ref, const char* label, int& resolution);
         float drawAssetThumbnail(const std::string& path, const char* id, bool selected = false, float scale = 3.0f);
         void drawTextureLayers(TerrainComponent& terrain);
+        void drawLayerSurface(TerrainComponent& terrain, int index);
+        bool setSurfaceLayers(const std::vector<TerrainSurfaceLayer>& layers, bool merge = false);
+        void applyLayerMaterial(TerrainComponent& terrain, int index, const std::string& materialPath);
         void drawBrushMask();
         void setBrushMask(const std::string& path);
         bool loadBrushMask();

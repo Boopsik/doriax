@@ -3298,19 +3298,9 @@ ActionResult EditorActionExecutor::setTerrainTextures(const Json& arguments) {
     Entity entity = resolveTerrainEntity(project, sceneProject, arguments);
     if (entity == NULL_ENTITY) return failResult("Terrain entity not found.");
 
-    // slot is the index inside blendMaps or textureLayers, -1 for the height map
-    struct TextureField { const char* arg; bool height; int slot; bool layer; };
-    static const TextureField fields[] = {
-        {"heightmap_path", true, -1, false},
-        {"blendmap_path", false, 0, false},
-        {"detail_red_path", false, 0, true},
-        {"detail_green_path", false, 1, true},
-        {"detail_blue_path", false, 2, true}
-    };
-
     TerrainComponent& terrain = sceneProject->scene->getComponent<TerrainComponent>(entity);
     std::vector<Texture> blendMaps = terrain.blendMaps;
-    std::vector<Texture> textureLayers = terrain.textureLayers;
+    std::vector<TerrainSurfaceLayer> layers = terrain.surfaceLayers;
     bool blendMapsChanged = false;
     bool layersChanged = false;
 
@@ -3327,31 +3317,88 @@ ActionResult EditorActionExecutor::setTerrainTextures(const Json& arguments) {
 
     auto* multiCmd = new MultiPropertyCmd();
     int changed = 0;
-    for (const TextureField& field : fields) {
-        if (!arguments.contains(field.arg) || !arguments[field.arg].is_string()) continue;
-        fs::path rel = arguments[field.arg].get<std::string>();
+    std::string error;
+
+    // Resolves an argument to an assets-relative texture, or reports why it cannot
+    auto readTexture = [&](const char* arg, Texture& out) -> bool {
+        if (!arguments.contains(arg) || !arguments[arg].is_string()) return false;
+        fs::path rel = arguments[arg].get<std::string>();
         if (!PathUtils::isSafeRelativePath(rel) || !fs::exists(project->getProjectPath() / rel)) {
-            delete multiCmd;
-            return failResult(std::string(field.arg) + " must be an existing safe project-relative path.");
+            error = std::string(arg) + " must be an existing safe project-relative path.";
+            return false;
         }
         if (!isInsideAssets(project, rel)) {
-            delete multiCmd;
-            return failResult(outsideAssetsError(project, field.arg));
+            error = outsideAssetsError(project, arg);
+            return false;
         }
-        // The whole vector is set at once, so filling a slot can also grow it
-        if (field.slot >= 0) {
-            std::vector<Texture>& textures = field.layer ? textureLayers : blendMaps;
-            bool& touched = field.layer ? layersChanged : blendMapsChanged;
-            if (textures.size() <= static_cast<size_t>(field.slot)) {
-                textures.resize(field.slot + 1);
-            }
-            textures[field.slot] = Texture(assetPathFromAi(project, rel));
-            touched = true;
-        } else {
-            multiCmd->addPropertyCmd<Texture>(project, sceneId, entity, ComponentType::TerrainComponent,
-                                              "heightMap", Texture(assetPathFromAi(project, rel)), terrainChanged(true));
-        }
+        out = Texture(assetPathFromAi(project, rel));
         changed++;
+        return true;
+    };
+
+    Texture heightMap;
+    if (readTexture("heightmap_path", heightMap)) {
+        multiCmd->addPropertyCmd<Texture>(project, sceneId, entity, ComponentType::TerrainComponent,
+                                          "heightMap", heightMap, terrainChanged(true));
+    }
+
+    Texture blendMap;
+    if (readTexture("blendmap_path", blendMap)) {
+        // The whole vector is set at once, so filling a slot can also grow it
+        if (blendMaps.empty()) blendMaps.resize(1);
+        blendMaps[0] = blendMap;
+        blendMapsChanged = true;
+    }
+
+    // The first three layers, under the names they had when a blend map was the only one
+    const char* detailArgs[] = {"detail_red_path", "detail_green_path", "detail_blue_path"};
+    for (int i = 0; i < 3; i++) {
+        Texture color;
+        if (!readTexture(detailArgs[i], color)) continue;
+        if (layers.size() <= (size_t)i) layers.resize(i + 1);
+        layers[i].colorTexture = color;
+        layersChanged = true;
+    }
+
+    // A single layer, with every map a painted surface can hold
+    if (arguments.contains("layer_index")) {
+        const int index = arguments["layer_index"].is_number_integer() ? arguments["layer_index"].get<int>() : -1;
+        if (index < 0 || index >= MAX_TERRAIN_LAYERS) {
+            delete multiCmd;
+            return failResult("layer_index must be between 0 and " + std::to_string(MAX_TERRAIN_LAYERS - 1) + ".");
+        }
+        if (layers.size() <= (size_t)index) layers.resize(index + 1);
+        TerrainSurfaceLayer& layer = layers[index];
+
+        if (arguments.contains("layer_pbr")) {
+            if (!arguments["layer_pbr"].is_boolean()) {
+                delete multiCmd;
+                return failResult("layer_pbr must be a boolean.");
+            }
+            layer.pbr = arguments["layer_pbr"].get<bool>();
+            layersChanged = true;
+            changed++;
+        }
+
+        struct LayerMap { const char* arg; Texture TerrainSurfaceLayer::* map; };
+        static const LayerMap layerMaps[] = {
+            {"layer_color_path", &TerrainSurfaceLayer::colorTexture},
+            {"layer_normal_path", &TerrainSurfaceLayer::normalTexture},
+            {"layer_roughness_path", &TerrainSurfaceLayer::roughnessTexture},
+            {"layer_metallic_path", &TerrainSurfaceLayer::metallicTexture},
+            {"layer_occlusion_path", &TerrainSurfaceLayer::occlusionTexture},
+            {"layer_height_path", &TerrainSurfaceLayer::heightTexture}
+        };
+        for (const LayerMap& entry : layerMaps) {
+            if (readTexture(entry.arg, layer.*entry.map)) {
+                layersChanged = true;
+            }
+        }
+    }
+
+    if (!error.empty()) {
+        delete multiCmd;
+        return failResult(error);
     }
 
     if (blendMapsChanged) {
@@ -3359,8 +3406,8 @@ ActionResult EditorActionExecutor::setTerrainTextures(const Json& arguments) {
                                                        "blendMaps", blendMaps, terrainChanged(false));
     }
     if (layersChanged) {
-        multiCmd->addPropertyCmd<std::vector<Texture>>(project, sceneId, entity, ComponentType::TerrainComponent,
-                                                       "textureLayers", textureLayers, terrainChanged(false));
+        multiCmd->addPropertyCmd<std::vector<TerrainSurfaceLayer>>(project, sceneId, entity, ComponentType::TerrainComponent,
+                                                                   "surfaceLayers", layers, terrainChanged(false));
     }
 
     if (changed == 0) {

@@ -1289,6 +1289,25 @@ namespace {
         return PropertyData();
     }
 
+    PropertyData getTerrainSurfaceLayerPropertyFast(TerrainSurfaceLayer& layer, const std::string& fieldName) {
+        static TerrainSurfaceLayer def;
+        if (fieldName == ".pbr") return {PropertyType::Bool, UpdateFlags_Terrain_Texture, &def.pbr, &layer.pbr};
+        if (fieldName == ".colorTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.colorTexture, &layer.colorTexture};
+        if (fieldName == ".normalTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.normalTexture, &layer.normalTexture};
+        if (fieldName == ".roughnessTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.roughnessTexture, &layer.roughnessTexture};
+        if (fieldName == ".metallicTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.metallicTexture, &layer.metallicTexture};
+        if (fieldName == ".occlusionTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.occlusionTexture, &layer.occlusionTexture};
+        if (fieldName == ".heightTexture") return {PropertyType::Texture, UpdateFlags_Terrain_Texture, &def.heightTexture, &layer.heightTexture};
+        if (fieldName == ".colorFactor") return {PropertyType::Vector4, UpdateFlags_Terrain_Texture, &def.colorFactor, &layer.colorFactor};
+        if (fieldName == ".normalStrength") return {PropertyType::Float, UpdateFlags_Terrain_Texture, &def.normalStrength, &layer.normalStrength};
+        if (fieldName == ".roughnessFactor") return {PropertyType::Float, UpdateFlags_Terrain_Texture, &def.roughnessFactor, &layer.roughnessFactor};
+        if (fieldName == ".metallicFactor") return {PropertyType::Float, UpdateFlags_Terrain_Texture, &def.metallicFactor, &layer.metallicFactor};
+        if (fieldName == ".occlusionStrength") return {PropertyType::Float, UpdateFlags_Terrain_Texture, &def.occlusionStrength, &layer.occlusionStrength};
+        if (fieldName == ".uvScale") return {PropertyType::Vector2, UpdateFlags_Terrain_Texture, &def.uvScale, &layer.uvScale};
+        if (fieldName == ".uvOffset") return {PropertyType::Vector2, UpdateFlags_Terrain_Texture, &def.uvOffset, &layer.uvOffset};
+        return PropertyData();
+    }
+
     PropertyData getTerrainTexturePropertyFast(std::vector<Texture>& textures, const std::string& propertyName, size_t pos) {
         size_t index = 0;
         if (!parseIndex(propertyName, pos, index) || pos + 1 != propertyName.size() || propertyName[pos] != ']') {
@@ -1335,12 +1354,20 @@ namespace {
             return getTerrainTexturePropertyFast(comp->blendMaps, propertyName, 10);
         }
 
-        if (propertyName == "textureLayers") {
-            return {PropertyType::Custom, UpdateFlags_Terrain_Texture, (void*)&def.textureLayers, (void*)&comp->textureLayers};
+        if (propertyName == "surfaceLayers") {
+            return {PropertyType::Custom, UpdateFlags_Terrain_Texture, (void*)&def.surfaceLayers, (void*)&comp->surfaceLayers};
         }
 
-        if (propertyName.compare(0, 14, "textureLayers[") == 0) {
-            return getTerrainTexturePropertyFast(comp->textureLayers, propertyName, 14);
+        if (propertyName.compare(0, 14, "surfaceLayers[") == 0) {
+            size_t pos = 14;
+            size_t index = 0;
+            if (!parseIndex(propertyName, pos, index) || pos >= propertyName.size() || propertyName[pos] != ']') {
+                return PropertyData();
+            }
+            if (index >= comp->surfaceLayers.size()) {
+                return PropertyData();
+            }
+            return getTerrainSurfaceLayerPropertyFast(comp->surfaceLayers[index], propertyName.substr(pos + 1));
         }
 
         if (propertyName == "foliageLayers") {
@@ -2269,7 +2296,7 @@ namespace {
         }
 
         ps["blendMaps"] = {PropertyType::Custom, UpdateFlags_Terrain_Texture, (void*)&def.blendMaps, compRef ? (void*)&comp->blendMaps : nullptr};
-        ps["textureLayers"] = {PropertyType::Custom, UpdateFlags_Terrain_Texture, (void*)&def.textureLayers, compRef ? (void*)&comp->textureLayers : nullptr};
+        ps["surfaceLayers"] = {PropertyType::Custom, UpdateFlags_Terrain_Texture, (void*)&def.surfaceLayers, compRef ? (void*)&comp->surfaceLayers : nullptr};
 
         static Texture defTexture;
         for (size_t i = 0; i < (compRef ? comp->blendMaps.size() : 1); i++) {
@@ -2277,9 +2304,27 @@ namespace {
             ps["blendMaps[" + idx + "]"] = {PropertyType::Texture, UpdateFlags_Terrain_Texture, (void*)&defTexture, compRef ? (void*)&comp->blendMaps[i] : nullptr};
         }
 
-        for (size_t i = 0; i < (compRef ? comp->textureLayers.size() : 1); i++) {
-            std::string idx = compRef ? std::to_string(i) : "";
-            ps["textureLayers[" + idx + "]"] = {PropertyType::Texture, UpdateFlags_Terrain_Texture, (void*)&defTexture, compRef ? (void*)&comp->textureLayers[i] : nullptr};
+        static TerrainSurfaceLayer defSurfaceLayer;
+        for (size_t i = 0; i < (compRef ? comp->surfaceLayers.size() : 1); i++) {
+            std::string prefix = "surfaceLayers[" + (compRef ? std::to_string(i) : "") + "]";
+            TerrainSurfaceLayer* layer = compRef ? &comp->surfaceLayers[i] : nullptr;
+            auto field = [&](const char* name, PropertyType type, void* defRef, void* ref) {
+                ps[prefix + name] = {type, UpdateFlags_Terrain_Texture, defRef, layer ? ref : nullptr};
+            };
+            field(".pbr", PropertyType::Bool, (void*)&defSurfaceLayer.pbr, layer ? (void*)&layer->pbr : nullptr);
+            field(".colorTexture", PropertyType::Texture, (void*)&defSurfaceLayer.colorTexture, layer ? (void*)&layer->colorTexture : nullptr);
+            field(".normalTexture", PropertyType::Texture, (void*)&defSurfaceLayer.normalTexture, layer ? (void*)&layer->normalTexture : nullptr);
+            field(".roughnessTexture", PropertyType::Texture, (void*)&defSurfaceLayer.roughnessTexture, layer ? (void*)&layer->roughnessTexture : nullptr);
+            field(".metallicTexture", PropertyType::Texture, (void*)&defSurfaceLayer.metallicTexture, layer ? (void*)&layer->metallicTexture : nullptr);
+            field(".occlusionTexture", PropertyType::Texture, (void*)&defSurfaceLayer.occlusionTexture, layer ? (void*)&layer->occlusionTexture : nullptr);
+            field(".heightTexture", PropertyType::Texture, (void*)&defSurfaceLayer.heightTexture, layer ? (void*)&layer->heightTexture : nullptr);
+            field(".colorFactor", PropertyType::Vector4, (void*)&defSurfaceLayer.colorFactor, layer ? (void*)&layer->colorFactor : nullptr);
+            field(".normalStrength", PropertyType::Float, (void*)&defSurfaceLayer.normalStrength, layer ? (void*)&layer->normalStrength : nullptr);
+            field(".roughnessFactor", PropertyType::Float, (void*)&defSurfaceLayer.roughnessFactor, layer ? (void*)&layer->roughnessFactor : nullptr);
+            field(".metallicFactor", PropertyType::Float, (void*)&defSurfaceLayer.metallicFactor, layer ? (void*)&layer->metallicFactor : nullptr);
+            field(".occlusionStrength", PropertyType::Float, (void*)&defSurfaceLayer.occlusionStrength, layer ? (void*)&layer->occlusionStrength : nullptr);
+            field(".uvScale", PropertyType::Vector2, (void*)&defSurfaceLayer.uvScale, layer ? (void*)&layer->uvScale : nullptr);
+            field(".uvOffset", PropertyType::Vector2, (void*)&defSurfaceLayer.uvOffset, layer ? (void*)&layer->uvOffset : nullptr);
         }
 
         ps["foliageLayers"] = {PropertyType::Custom, UpdateFlags_Terrain_Foliage, (void*)&def.foliageLayers, compRef ? (void*)&comp->foliageLayers : nullptr};
@@ -4477,8 +4522,11 @@ void editor::Catalog::copyPropertyValue(EntityRegistry* sourceRegistry, Entity s
                 auto* source = Catalog::getPropertyRef<std::vector<TerrainFoliageLayer>>(sourceRegistry, sourceEntity, compType, property);
                 auto* target = Catalog::getPropertyRef<std::vector<TerrainFoliageLayer>>(targetRegistry, targetEntity, compType, property);
                 if (source && target) *target = *source;
-            } else if (compType == ComponentType::TerrainComponent &&
-                       (property == "blendMaps" || property == "textureLayers")) {
+            } else if (compType == ComponentType::TerrainComponent && property == "surfaceLayers") {
+                auto* source = Catalog::getPropertyRef<std::vector<TerrainSurfaceLayer>>(sourceRegistry, sourceEntity, compType, property);
+                auto* target = Catalog::getPropertyRef<std::vector<TerrainSurfaceLayer>>(targetRegistry, targetEntity, compType, property);
+                if (source && target) *target = *source;
+            } else if (compType == ComponentType::TerrainComponent && property == "blendMaps") {
                 auto* source = Catalog::getPropertyRef<std::vector<Texture>>(sourceRegistry, sourceEntity, compType, property);
                 auto* target = Catalog::getPropertyRef<std::vector<Texture>>(targetRegistry, targetEntity, compType, property);
                 if (source && target) *target = *source;

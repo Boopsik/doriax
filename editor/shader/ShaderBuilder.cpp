@@ -11,6 +11,7 @@
 #include "thread/ResourceProgress.h"
 #include "thread/ThreadPoolManager.h"
 
+#include "component/TerrainComponent.h"
 #include "pool/ShaderPool.h"
 #include "util/SHA1.h"
 #include "util/Util.h"
@@ -460,6 +461,7 @@ void editor::ShaderBuilder::addMeshPropertyDefinitions(std::vector<shadercompile
     if (prop & (1 << 24)) defs.push_back({"ALPHA_MASK", "1"});                 // 'Ams'
     if (prop & (1 << 25)) defs.push_back({"ALPHA_OPAQUE", "1"});               // 'Aop'
     if (prop & (1 << 26)) defs.push_back({"USE_INSTANCE_FADE", "1"});          // 'Ifd'
+    if (prop & (1 << 27)) defs.push_back({"HAS_TERRAIN_PBR", "1"});            // 'Tpb'
 }
 
 void editor::ShaderBuilder::addDepthMeshPropertyDefinitions(std::vector<shadercompiler::define_t>& defs, const uint32_t prop) {
@@ -484,6 +486,7 @@ void editor::ShaderBuilder::addGBufferMeshPropertyDefinitions(std::vector<shader
     if (prop & (1 << 6))  defs.push_back({"HAS_TERRAIN", "1"});                   // 'Ter'
     if (prop & (1 << 7))  defs.push_back({"HAS_INSTANCING", "1"});                // 'Ist'
     if (prop & (1 << 8))  defs.push_back({"HAS_METALLICROUGHNESS_TEXTURE", "1"}); // 'Mrt'
+    if (prop & (1 << 9))  defs.push_back({"HAS_TERRAIN_PBR", "1"});               // 'Tpb'
 }
 
 void editor::ShaderBuilder::addUIPropertyDefinitions(std::vector<shadercompiler::define_t>& defs, const uint32_t prop) {
@@ -685,6 +688,9 @@ bool editor::ShaderBuilder::setupShaderArgs(shadercompiler::args_t& args, Shader
         return false;
     }
 
+    if (shaderType == ShaderType::MESH || shaderType == ShaderType::GBUFFER){
+        args.defines.push_back({"MAX_TERRAIN_LAYERS", std::to_string(MAX_TERRAIN_LAYERS)});
+    }
     if (shaderType == ShaderType::MESH){
         args.defines.push_back({"MAX_LIGHTS", "6"});
         args.defines.push_back({"MAX_LIGHTS_2D", std::to_string(MAX_LIGHTS_2D)});

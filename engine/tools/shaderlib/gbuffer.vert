@@ -4,10 +4,10 @@
 // (skinning / morph / terrain / instancing) and additionally carries the surface
 // normal into view space for the fragment stage.
 //
-// The build defines DEPTH_SHADER (see ShaderBuilder) for the same reason depth.vert
-// does: it suppresses the terrain texture-coordinate varyings (which the G-buffer
-// fragment does not consume) and the morph-normal machinery. Skinning and terrain
-// normals are still applied; per-target morph-normal blending is not (fine for SSR).
+// The build defines DEPTH_SHADER (see ShaderBuilder) for the same reason depth.vert does:
+// it suppresses the morph-normal machinery and, unless HAS_TERRAIN_PBR samples them, the
+// terrain texture-coordinate varyings. Skinning and terrain normals are still applied;
+// per-target morph-normal blending is not (fine for SSR).
 
 uniform u_vs_gbufferParams {
     mat4 modelMatrix;
@@ -91,8 +91,20 @@ void main() {
         v_normal = normalize(mat3(gbufferParams.normalMatrix) * objNormal);
     #endif
 
+    #if defined(HAS_TERRAIN_PBR) && defined(HAS_NORMALS)
+        setTerrainShadingAxes(gbufferParams.normalMatrix);
+    #endif
+
+    #ifdef HAS_TERRAIN_PBR
+        // fills the surface varyings the painted layers are sampled with, and returns
+        // the same base-tile UV the branch below computes by hand
+        vec2 terrainBaseUV = getTerrainTiledTexture(objPos.xyz);
+    #endif
+
     #if defined(HAS_BASECOLOR_TEXTURE) || defined(HAS_METALLICROUGHNESS_TEXTURE)
-        #ifdef HAS_TERRAIN
+        #ifdef HAS_TERRAIN_PBR
+            v_uv1 = terrainBaseUV;
+        #elif defined(HAS_TERRAIN)
             // base-tile terrain UV, matching mesh.vert's getTerrainTiledTexture()
             v_uv1 = (objPos.xz + (terrain.size / 2.0)) / terrain.size * float(terrain.textureBaseTiles);
         #else

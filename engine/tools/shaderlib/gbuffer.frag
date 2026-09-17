@@ -5,6 +5,9 @@
 //   color[1] = view-space normal (octahedral .rg) + roughness (.b) + metallic (.a)
 //   color[2] = linear base color (.rgb) + IBL source (.a):
 //              0 = none, 0.5 = sky, 1 = local reflection probe
+//
+// HAS_TERRAIN_PBR evaluates the painted layers here too, so what this writes matches
+// what the color pass shades.
 
 layout(location = 0) out vec4 frag_depth;
 layout(location = 1) out vec4 frag_gbuffer;
@@ -33,6 +36,9 @@ uniform u_fs_gbufferMaterial {
 #include "includes/depth_util.glsl"
 #include "includes/octahedral.glsl"
 #include "includes/srgb.glsl"
+#ifdef HAS_TERRAIN_PBR
+    #include "includes/terrain_fs.glsl"
+#endif
 
 void main() {
     vec4 baseColor = gbufferMaterial.baseColorFactor;
@@ -57,6 +63,16 @@ void main() {
     frag_depth = encodeDepth(0.5 * v_projZW[0] / v_projZW[1] + 0.5);
 
     vec3 n = normalize(v_normal);
+
+    #ifdef HAS_TERRAIN_PBR
+        // the same evaluation the color pass runs, so SSR sees the surface it shades
+        TerrainSurface terrainSurface = getTerrainSurface(baseColor, n, roughness, metallic);
+        baseColor = terrainSurface.color;
+        roughness = terrainSurface.roughness;
+        metallic = terrainSurface.metallic;
+        n = terrainSurface.normal;
+    #endif
+
     frag_gbuffer = vec4(octEncode(n), clamp(roughness, 0.0, 1.0), clamp(metallic, 0.0, 1.0));
 
     frag_albedo = vec4(baseColor.rgb, gbufferMaterial.params.z);

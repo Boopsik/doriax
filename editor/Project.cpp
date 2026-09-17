@@ -653,8 +653,10 @@ bool editor::Project::visitAssetPathsInRegistry(EntityRegistry* registry, const 
         for (Texture& blendMap : terrain.blendMaps) {
             terrainChanged |= visitTexturePaths(blendMap, transform);
         }
-        for (Texture& layer : terrain.textureLayers) {
-            terrainChanged |= visitTexturePaths(layer, transform);
+        for (TerrainSurfaceLayer& layer : terrain.surfaceLayers) {
+            forEachTerrainLayerTexture(layer, [&](Texture& texture) {
+                terrainChanged |= visitTexturePaths(texture, transform);
+            });
         }
 
         for (TerrainFoliageLayer& layer : terrain.foliageLayers) {

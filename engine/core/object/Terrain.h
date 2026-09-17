@@ -5,6 +5,7 @@
 #define TERRAIN_H
 
 #include "Mesh.h"
+#include "component/TerrainComponent.h"
 
 namespace doriax{
 
@@ -24,11 +25,20 @@ namespace doriax{
         void setBlendMap(Framebuffer* framebuffer);
 
         void setBlendMap(unsigned int index, const std::string& path);
+
+        // Only the layer color: a PBR layer keeps the rest of its surface
         void setTextureLayer(unsigned int index, const std::string& path);
 
         void setTextureDetailRed(const std::string& path);
         void setTextureDetailGreen(const std::string& path);
         void setTextureDetailBlue(const std::string& path);
+
+        void setSurfaceLayer(unsigned int index, const TerrainSurfaceLayer& layer);
+        TerrainSurfaceLayer getSurfaceLayer(unsigned int index) const;
+        // Copies what a terrain layer can render, and turns the layer into a PBR one
+        void setLayerFromMaterial(unsigned int index, const Material& material);
+        void removeSurfaceLayer(unsigned int index);
+        unsigned int getNumLayers() const;
 
         void setSize(float size);
         float getSize() const;

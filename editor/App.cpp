@@ -2357,7 +2357,9 @@ std::filesystem::path editor::App::getUserShaderCacheDir(){
     //      as points, so posed bone translations stop flattening the lighting.
     // v26: shadow PCF loop bounds are clamped on every backend, not just HLSL, so a
     //      bad uniform can no longer produce an unbounded loop (a GPU hang).
-    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v26";
+    // v27: per-layer PBR terrain (HAS_TERRAIN_PBR) — layer maps are slices of the detail
+    //      array driven by u_fs_terrainLayers, in the color pass and the G-buffer alike.
+    return App::getUserCacheBaseDir() / "doriax" / "shaders" / "v27";
 }
 
 void editor::App::pushTabNotificationStyle(){

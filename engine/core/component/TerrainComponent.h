@@ -23,6 +23,10 @@
 #define MAX_TERRAIN_BLENDMAPS 3
 #define MAX_TERRAIN_LAYERS (MAX_TERRAIN_BLENDMAPS * 3)
 
+// One array texture holds every layer map, so a bigger source is downscaled into it
+// instead of resizing every other slice up with it.
+#define MAX_TERRAIN_DETAIL_SIZE 2048
+
 #include "buffer/InterleavedBuffer.h"
 #include "buffer/IndexBuffer.h"
 #include "texture/Material.h"
@@ -65,6 +69,51 @@ namespace doriax{
         bool needUpdateNodesBuffer = false;
     };
 
+    // One painted surface. The maps are separate inputs so an existing material can fill
+    // them without repacking images; the renderer packs them into its own array slices.
+    struct TerrainSurfaceLayer{
+        // Off is the historical layer: it blends its color and leaves every other property
+        // to the terrain material, with the texture alpha carrying the blending height.
+        bool pbr = false;
+
+        Texture colorTexture;
+        Texture normalTexture;
+        Texture roughnessTexture; //green channel, or the only channel of a grayscale map
+        Texture metallicTexture; //blue channel, same fallback
+        Texture occlusionTexture; //red channel
+        Texture heightTexture; //blending height only, never geometry
+
+        Vector4 colorFactor = Vector4(1, 1, 1, 1); //linear tint; PBR layers ignore alpha
+        float normalStrength = 1;
+        float roughnessFactor = 1;
+        float metallicFactor = 0;
+        float occlusionStrength = 1;
+
+        Vector2 uvScale = Vector2(1, 1); //multiplies the shared detail tiling
+        Vector2 uvOffset;
+
+        bool operator == (const TerrainSurfaceLayer& other) const{
+            return pbr == other.pbr &&
+                   colorTexture == other.colorTexture &&
+                   normalTexture == other.normalTexture &&
+                   roughnessTexture == other.roughnessTexture &&
+                   metallicTexture == other.metallicTexture &&
+                   occlusionTexture == other.occlusionTexture &&
+                   heightTexture == other.heightTexture &&
+                   colorFactor == other.colorFactor &&
+                   normalStrength == other.normalStrength &&
+                   roughnessFactor == other.roughnessFactor &&
+                   metallicFactor == other.metallicFactor &&
+                   occlusionStrength == other.occlusionStrength &&
+                   uvScale == other.uvScale &&
+                   uvOffset == other.uvOffset;
+        }
+
+        bool operator != (const TerrainSurfaceLayer& other) const{
+            return !(*this == other);
+        }
+    };
+
     // A scattered mesh layer painted over the terrain. The editor authors its density map;
     // instances are resolved from that map instead of being stored.
     struct TerrainFoliageLayer{
@@ -90,9 +139,9 @@ namespace doriax{
         TerrainView views[MAX_TERRAIN_VIEWS];
 
         Texture heightMap;
-        // blendMaps[m] channel c weights textureLayers[m * 3 + c]
+        // blendMaps[m] channel c weights surfaceLayers[m * 3 + c]
         std::vector<Texture> blendMaps;
-        std::vector<Texture> textureLayers;
+        std::vector<TerrainSurfaceLayer> surfaceLayers;
 
         std::vector<TerrainFoliageLayer> foliageLayers;
 
@@ -127,7 +176,46 @@ namespace doriax{
         bool needUpdateTexture = false;
         bool needUpdateFoliage = true;
     };
-    
+
+    // The one place a material becomes a layer, shared by the engine setter and the editor
+    inline TerrainSurfaceLayer terrainLayerFromMaterial(const Material& material, const TerrainSurfaceLayer& previous){
+        TerrainSurfaceLayer layer;
+        layer.pbr = true;
+        layer.colorTexture = material.baseColorTexture;
+        layer.colorFactor = material.baseColorFactor;
+        layer.normalTexture = material.normalTexture;
+        layer.roughnessTexture = material.metallicRoughnessTexture;
+        layer.metallicTexture = material.metallicRoughnessTexture;
+        layer.occlusionTexture = material.occlusionTexture;
+        layer.roughnessFactor = material.roughnessFactor;
+        layer.metallicFactor = material.metallicFactor;
+        // Tiling is the layer's own, and no material carries it
+        layer.uvScale = previous.uvScale;
+        layer.uvOffset = previous.uvOffset;
+        return layer;
+    }
+
+    // Every map a layer can hold, so callers walking terrain assets cannot miss one
+    template<typename F>
+    inline void forEachTerrainLayerTexture(TerrainSurfaceLayer& layer, F&& fn){
+        fn(layer.colorTexture);
+        fn(layer.normalTexture);
+        fn(layer.roughnessTexture);
+        fn(layer.metallicTexture);
+        fn(layer.occlusionTexture);
+        fn(layer.heightTexture);
+    }
+
+    // A layer with its own surface, or its own tiling, needs the wider terrain shader
+    inline bool hasTerrainSurfaceLayers(const TerrainComponent& terrain){
+        for (const TerrainSurfaceLayer& layer : terrain.surfaceLayers){
+            if (layer.pbr || layer.uvScale != Vector2(1, 1) || layer.uvOffset != Vector2(0, 0)){
+                return true;
+            }
+        }
+        return false;
+    }
+
 }
 
 #endif //TERRAIN_COMPONENT_H

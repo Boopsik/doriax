@@ -409,9 +409,9 @@ std::string ShaderPool::getShaderTypeName(ShaderType shaderType, bool lowerCase)
 
 int ShaderPool::getShaderPropertyCount(ShaderType shaderType){
     switch (shaderType) {
-        case ShaderType::MESH:   return 27;
+        case ShaderType::MESH:   return 28;
         case ShaderType::DEPTH:  return 9;
-        case ShaderType::GBUFFER: return 9;
+        case ShaderType::GBUFFER: return 10;
         case ShaderType::UI:     return 4;
         case ShaderType::POINTS: return 4;
         case ShaderType::LINES:  return 2;
@@ -457,6 +457,7 @@ std::string ShaderPool::getShaderPropertyName(ShaderType shaderType, int bit, bo
             case 24: return shortName ? "Ams" : "Alpha Mask";
             case 25: return shortName ? "Aop" : "Alpha Opaque";
             case 26: return shortName ? "Ifd" : "Instance Fade";
+            case 27: return shortName ? "Tpb" : "Terrain PBR";
         }
     } else if (shaderType == ShaderType::DEPTH) {
         switch (bit) {
@@ -481,6 +482,7 @@ std::string ShaderPool::getShaderPropertyName(ShaderType shaderType, int bit, bo
             case 6: return shortName ? "Ter" : "Terrain";
             case 7: return shortName ? "Ist" : "Instancing";
             case 8: return shortName ? "Mrt" : "MetalRough Texture";
+            case 9: return shortName ? "Tpb" : "Terrain PBR";
         }
     } else if (shaderType == ShaderType::UI) {
         switch (bit) {
@@ -688,7 +690,7 @@ uint32_t ShaderPool::getMeshProperties(
     bool tangents, bool vertexColorVec3, bool vertexColorVec4, bool textureRect,
     bool fog, bool skinning, bool morphTarget, bool morphNormal, bool morphTangent,
     bool terrain, bool instanced, bool ibl, bool mirror, bool ssao, bool light2d, bool shadows2d,
-    bool alphaMask, bool alphaOpaque, bool instanceFade){
+    bool alphaMask, bool alphaOpaque, bool instanceFade, bool terrainPBR){
     uint32_t prop = 0;
 
     prop |= unlit            ? (1 <<  0) : 0;
@@ -719,6 +721,7 @@ uint32_t ShaderPool::getMeshProperties(
     prop |= alphaMask        ? (1 << 24) : 0;
     prop |= alphaOpaque      ? (1 << 25) : 0;
     prop |= instanceFade     ? (1 << 26) : 0;
+    prop |= terrainPBR       ? (1 << 27) : 0;
 
     return prop;
 }
@@ -739,7 +742,7 @@ uint32_t ShaderPool::getDepthMeshProperties(bool texture, bool skinning, bool mo
     return prop;
 }
 
-uint32_t ShaderPool::getGBufferMeshProperties(bool baseColorTexture, bool normals, bool skinning, bool morphTarget, bool morphNormal, bool morphTangent, bool terrain, bool instanced, bool metallicRoughnessTexture){
+uint32_t ShaderPool::getGBufferMeshProperties(bool baseColorTexture, bool normals, bool skinning, bool morphTarget, bool morphNormal, bool morphTangent, bool terrain, bool instanced, bool metallicRoughnessTexture, bool terrainPBR){
     uint32_t prop = 0;
 
     prop |= baseColorTexture        ? (1 <<  0) : 0;
@@ -751,6 +754,7 @@ uint32_t ShaderPool::getGBufferMeshProperties(bool baseColorTexture, bool normal
     prop |= terrain                 ? (1 <<  6) : 0;
     prop |= instanced               ? (1 <<  7) : 0;
     prop |= metallicRoughnessTexture ? (1 << 8) : 0;
+    prop |= terrainPBR              ? (1 <<  9) : 0;
 
     return prop;
 }

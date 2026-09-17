@@ -90,6 +90,7 @@ namespace doriax{
         int slotVSSkinning = -1;
         int slotVSMorphTarget = -1;
         int slotVSTerrain = -1;
+        int slotFSTerrainLayers = -1;
 
         int slotVSDepthParams = -1;
         int slotFSDepthMaterial = -1;
@@ -103,6 +104,7 @@ namespace doriax{
         int slotVSGBufferSkinning = -1;
         int slotVSGBufferMorphTarget = -1;
         int slotVSGBufferTerrain = -1;
+        int slotFSGBufferTerrainLayers = -1;
 
         // custom uniform blocks of the forked shaders, filled from MeshComponent::shaderUniforms
         CustomUniformBlock customVSParams;

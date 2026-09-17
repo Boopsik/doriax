@@ -203,6 +203,8 @@ int ShaderData::getUniformBlockIndex(UniformBlockType type){
         ustr = "u_vs_terrainParams";
     }else if (type == UniformBlockType::DEPTH_TERRAIN_VS_PARAMS){
         ustr = "u_vs_terrainParams";
+    }else if (type == UniformBlockType::FS_TERRAIN_LAYERS){
+        ustr = "u_fs_terrainLayers";
     }else if (type == UniformBlockType::SSAO_FS_PARAMS){
         ustr = "u_fs_ssaoParams";
     }else if (type == UniformBlockType::SSAO_BLUR_FS_PARAMS){
