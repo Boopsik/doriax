@@ -1881,8 +1881,13 @@ void editor::App::engineRender(){
 
         auto meshSystem = sceneProject.scene->getSystem<MeshSystem>();
         bool hasPendingModelLoads = meshSystem && meshSystem->hasPendingAsyncModelLoads();
-        if (hasPendingModelLoads && !sceneProject.needUpdateRender && !isSelected) {
-            meshSystem->update(0);
+
+        // A tab hidden behind another has nothing to present, and drawing it makes
+        // lastActivatedScene alternate between tabs. The selected one always draws.
+        const bool hiddenTab = !sceneProject.isVisible && !isSelected
+            && sceneProject.playState != ScenePlayState::PLAYING;
+        if (hiddenTab || (hasPendingModelLoads && !sceneProject.needUpdateRender && !isSelected)) {
+            if (hasPendingModelLoads) meshSystem->update(0);
             continue;
         }
 
