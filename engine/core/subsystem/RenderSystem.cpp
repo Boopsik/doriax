@@ -2185,9 +2185,9 @@ RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity ent
         return found->second.getData() ? &found->second : NULL;
     };
 
-    enum SliceKind{ SLICE_COLOR, SLICE_NORMAL, SLICE_SURFACE };
     struct SliceSources{
-        SliceKind kind = SLICE_COLOR;
+        enum Kind{ SLICE_COLOR, SLICE_NORMAL, SLICE_SURFACE };
+        Kind kind = SLICE_COLOR;
         TextureData* color = NULL;
         TextureData* normal = NULL;
         TextureData* occlusion = NULL;
@@ -2200,12 +2200,12 @@ RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity ent
         const TerrainSurfaceLayer& layer = terrain.surfaceLayers[i];
         sliceSources[i].color = source(layer.colorTexture);
         if (normalSlice[i] >= 0){
-            sliceSources[normalSlice[i]].kind = SLICE_NORMAL;
+            sliceSources[normalSlice[i]].kind = SliceSources::SLICE_NORMAL;
             sliceSources[normalSlice[i]].normal = source(layer.normalTexture);
         }
         if (surfaceSlice[i] >= 0){
             SliceSources& packed = sliceSources[surfaceSlice[i]];
-            packed.kind = SLICE_SURFACE;
+            packed.kind = SliceSources::SLICE_SURFACE;
             packed.occlusion = source(layer.occlusionTexture);
             packed.roughness = source(layer.roughnessTexture);
             packed.metallic = source(layer.metallicTexture);
@@ -2245,11 +2245,11 @@ RenderSystem::TerrainDetailArray* RenderSystem::getTerrainDetailArray(Entity ent
         slices[s].resize(texels * 4, 0xFF);
         for (size_t t = 0; t < texels; t++){
             unsigned char* texel = &slices[s][t * 4];
-            if (src.kind == SLICE_NORMAL){
+            if (src.kind == SliceSources::SLICE_NORMAL){
                 texel[0] = terrainSourceChannel(src.normal, t, 0, 0x80);
                 texel[1] = terrainSourceChannel(src.normal, t, 1, 0x80);
                 texel[2] = terrainSourceChannel(src.normal, t, 2, 0xFF);
-            }else if (src.kind == SLICE_SURFACE){
+            }else if (src.kind == SliceSources::SLICE_SURFACE){
                 texel[0] = terrainSourceChannel(src.occlusion, t, 0, 0xFF);
                 texel[1] = terrainSourceChannel(src.roughness, t, 1, 0xFF);
                 texel[2] = terrainSourceChannel(src.metallic, t, 2, 0xFF);
