@@ -2874,6 +2874,9 @@ std::string editor::Factory::createInstancedMeshComponent(int indentSpaces, Enti
     const std::string ind = indentation(indentSpaces);
     code << ind << "InstancedMeshComponent instmesh;\n";
     code << ind << "instmesh.maxInstances = " << formatUInt(p.maxInstances) << ";\n";
+    code << ind << "instmesh.distanceFade = " << formatBool(p.distanceFade) << ";\n";
+    code << ind << "instmesh.fadeStart = " << formatFloat(p.fadeStart) << ";\n";
+    code << ind << "instmesh.fadeEnd = " << formatFloat(p.fadeEnd) << ";\n";
     code << ind << "instmesh.instancedBillboard = " << formatBool(p.instancedBillboard) << ";\n";
     code << ind << "instmesh.instancedCylindricalBillboard = " << formatBool(p.instancedCylindricalBillboard) << ";\n";
 

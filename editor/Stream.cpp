@@ -7580,6 +7580,9 @@ YAML::Node editor::Stream::encodeInstancedMeshComponent(const InstancedMeshCompo
     YAML::Node node;
 
     node["maxInstances"] = instmesh.maxInstances;
+    node["distanceFade"] = instmesh.distanceFade;
+    node["fadeStart"] = instmesh.fadeStart;
+    node["fadeEnd"] = instmesh.fadeEnd;
     node["instancedBillboard"] = instmesh.instancedBillboard;
     node["instancedCylindricalBillboard"] = instmesh.instancedCylindricalBillboard;
 
@@ -7604,6 +7607,9 @@ InstancedMeshComponent editor::Stream::decodeInstancedMeshComponent(const YAML::
     if (oldInstmesh) { instmesh = *oldInstmesh; }
 
     if (node["maxInstances"]) instmesh.maxInstances = node["maxInstances"].as<unsigned int>();
+    if (node["distanceFade"]) instmesh.distanceFade = node["distanceFade"].as<bool>();
+    instmesh.fadeStart = decodeFinite(node["fadeStart"], instmesh.fadeStart);
+    instmesh.fadeEnd = decodeFinite(node["fadeEnd"], instmesh.fadeEnd);
     if (node["instancedBillboard"]) instmesh.instancedBillboard = node["instancedBillboard"].as<bool>();
     if (node["instancedCylindricalBillboard"]) instmesh.instancedCylindricalBillboard = node["instancedCylindricalBillboard"].as<bool>();
 

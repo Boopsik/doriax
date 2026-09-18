@@ -8952,10 +8952,18 @@ void editor::Properties::drawInstancedMeshComponent(ComponentType cpType, SceneP
     RowSettings settingsUInt;
     settingsUInt.secondColSize = 6 * ImGui::GetFontSize();
 
+    RowSettings fadeSettings;
+    fadeSettings.help = "Instances shrink toward their base between Fade Start and Fade End, using horizontal distance in the mesh's local space, instead of popping out. Fade End must be greater than Fade Start.";
+
     beginTable(cpType, getLabelSize("Cylindrical Billboard"));
     propertyRow(RowPropertyType::UInt, cpType, "maxInstances", "Max Instances", sceneProject, entities, settingsUInt);
     propertyRow(RowPropertyType::Bool, cpType, "instancedBillboard", "Billboard", sceneProject, entities);
     propertyRow(RowPropertyType::Bool, cpType, "instancedCylindricalBillboard", "Cylindrical Billboard", sceneProject, entities);
+    propertyRow(RowPropertyType::Bool, cpType, "distanceFade", "Distance Fade", sceneProject, entities, fadeSettings);
+    if (sceneProject->scene->getComponent<InstancedMeshComponent>(entities[0]).distanceFade) {
+        propertyRow(RowPropertyType::FloatPositive, cpType, "fadeStart", "Fade Start", sceneProject, entities, settingsUInt);
+        propertyRow(RowPropertyType::FloatPositive, cpType, "fadeEnd", "Fade End", sceneProject, entities, settingsUInt);
+    }
     endTable();
 
     if (entities.size() != 1) {
