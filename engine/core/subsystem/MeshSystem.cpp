@@ -1686,7 +1686,7 @@ int MeshSystem::convertGLTFColorToVec4(const tinygltf::Accessor& accessor, Model
 void MeshSystem::remapMeshNodesByName(ModelComponent& model, const std::vector<int>& meshNodes) {
     std::map<int, Entity> previous;
     for (const auto& node : model.meshNodesMapping) {
-        if (scene->getSignature(node.second).test(scene->getComponentId<MeshComponent>())) {
+        if (scene->findComponent<MeshComponent>(node.second)) {
             previous.insert(node);
         }
     }
@@ -4446,8 +4446,10 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
         if (useChildEntities) {
             meshEntity = NULL_ENTITY;
             auto existing = model.meshNodesMapping.find(nodeIdx);
+            // A saved mapping outlives the entities it names: the ids of a scene rebuilt
+            // from the factories are gone, and that is not an error to log
             if (existing != model.meshNodesMapping.end() &&
-                    scene->getSignature(existing->second).test(scene->getComponentId<MeshComponent>())) {
+                    scene->findComponent<MeshComponent>(existing->second)) {
                 meshEntity = existing->second; // reuse deserialized child (skipEntities reload)
             }
             if (meshEntity == NULL_ENTITY) {
@@ -4462,6 +4464,11 @@ bool MeshSystem::loadGLTF(Entity entity, const std::string filename, bool asyncL
                 scene->setEntityName(meshEntity, nodeName.empty() ? ("MeshNode " + std::to_string(nodeIdx)) : nodeName);
 
                 Transform& childTransform = scene->getComponent<Transform>(meshEntity);
+                // Visibility only propagates to children on change, and these arrive well
+                // after the root was set, so an invisible model would render every node
+                if (Transform* rootTransform = scene->findComponent<Transform>(entity)) {
+                    childTransform.visible = rootTransform->visible;
+                }
                 if (model.gltfModel->nodes[nodeIdx].skin >= 0) {
                     // Skinned nodes ignore their own transform (glTF spec): the skeleton drives the
                     // vertices in the model's space, so the child stays at identity under the root.

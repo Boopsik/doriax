@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <stdexcept>
 
 using namespace doriax;
 
@@ -1566,12 +1567,13 @@ Submesh editor::Stream::decodeSubmesh(const YAML::Node& node, const Submesh* old
         submesh = *oldSubmesh;
     }
 
-    submesh.material = decodeMaterial(node["material"]);
-    submesh.textureRect = decodeRect(node["textureRect"]);
-    submesh.primitiveType = stringToPrimitiveType(node["primitiveType"].as<std::string>());
-    submesh.vertexCount = node["vertexCount"].as<uint32_t>();
-    submesh.faceCulling = node["faceCulling"].as<bool>();
-    submesh.textureShadow = node["textureShadow"].as<bool>();
+    // All optional: an absent key keeps the value the submesh already has
+    if (node["material"]) submesh.material = decodeMaterial(node["material"], &submesh.material);
+    if (node["textureRect"]) submesh.textureRect = decodeRect(node["textureRect"]);
+    if (node["primitiveType"]) submesh.primitiveType = stringToPrimitiveType(node["primitiveType"].as<std::string>());
+    if (node["vertexCount"]) submesh.vertexCount = node["vertexCount"].as<uint32_t>();
+    if (node["faceCulling"]) submesh.faceCulling = node["faceCulling"].as<bool>();
+    if (node["textureShadow"]) submesh.textureShadow = node["textureShadow"].as<bool>();
 
     // Omitted at its default, so an absent key is a value, not a reason to keep the old one.
     submesh.overrideFields = node["overrideFields"] ? node["overrideFields"].as<uint32_t>() : 0;
@@ -1579,15 +1581,15 @@ Submesh editor::Stream::decodeSubmesh(const YAML::Node& node, const Submesh* old
     // Flags
     if (node["hasTexCoord1"]) submesh.hasTexCoord1 = node["hasTexCoord1"].as<bool>();
     if (node["hasTexCoord2"]) submesh.hasTexCoord2 = node["hasTexCoord2"].as<bool>();
-    submesh.hasNormalMap = node["hasNormalMap"].as<bool>();
-    submesh.hasTangent = node["hasTangent"].as<bool>();
+    if (node["hasNormalMap"]) submesh.hasNormalMap = node["hasNormalMap"].as<bool>();
+    if (node["hasTangent"]) submesh.hasTangent = node["hasTangent"].as<bool>();
     if (node["hasVertexColor3"]) submesh.hasVertexColor3 = node["hasVertexColor3"].as<bool>();
     if (node["hasVertexColor4"]) submesh.hasVertexColor4 = node["hasVertexColor4"].as<bool>();
-    submesh.hasTextureRect = node["hasTextureRect"].as<bool>();
-    submesh.hasSkinning = node["hasSkinning"].as<bool>();
-    submesh.hasMorphTarget = node["hasMorphTarget"].as<bool>();
-    submesh.hasMorphNormal = node["hasMorphNormal"].as<bool>();
-    submesh.hasMorphTangent = node["hasMorphTangent"].as<bool>();
+    if (node["hasTextureRect"]) submesh.hasTextureRect = node["hasTextureRect"].as<bool>();
+    if (node["hasSkinning"]) submesh.hasSkinning = node["hasSkinning"].as<bool>();
+    if (node["hasMorphTarget"]) submesh.hasMorphTarget = node["hasMorphTarget"].as<bool>();
+    if (node["hasMorphNormal"]) submesh.hasMorphNormal = node["hasMorphNormal"].as<bool>();
+    if (node["hasMorphTangent"]) submesh.hasMorphTangent = node["hasMorphTangent"].as<bool>();
 
     submesh.hasSkinningNormalization = false;
     if (node["normAdjustJoint"] || node["normAdjustWeight"]) {
@@ -3333,11 +3335,16 @@ std::vector<Entity> editor::Stream::decodeEntity(const YAML::Node& entityNode, E
             entities->push_back(entity);
         }
 
-        std::string name = entityNode["name"].as<std::string>();
+        std::string name = entityNode["name"] ? entityNode["name"].as<std::string>() : "Entity";
         registry->setEntityName(entity, name);
 
         if (entityNode["components"]){
-            decodeComponents(entity, parent, registry, entityNode["components"]);
+            // yaml-cpp only names the key it failed on, so point at the entity holding it
+            try {
+                decodeComponents(entity, parent, registry, entityNode["components"]);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("entity '" + name + "' (id " + std::to_string(entity) + "): " + e.what());
+            }
         }
 
         // Components added to a live entity after it was encoded, like a script calling
@@ -3421,37 +3428,31 @@ YAML::Node editor::Stream::encodeMaterial(const Material& material, bool embedTe
     return node;
 }
 
-Material editor::Stream::decodeMaterial(const YAML::Node& node) {
+Material editor::Stream::decodeMaterial(const YAML::Node& node, const Material* oldMaterial) {
     Material material;
+    if (oldMaterial) {
+        material = *oldMaterial;
+    }
 
-    material.baseColorFactor = decodeVector4(node["baseColorFactor"]);
-    material.metallicFactor = node["metallicFactor"].as<float>();
-    material.roughnessFactor = node["roughnessFactor"].as<float>();
-    if (node["alphaCutoff"]) material.alphaCutoff = node["alphaCutoff"].as<float>();
+    // Scalars are optional, so a partial block only changes the ones it names
+    if (node["baseColorFactor"]) material.baseColorFactor = decodeVector4(node["baseColorFactor"]);
+    material.metallicFactor = decodeFinite(node["metallicFactor"], material.metallicFactor);
+    material.roughnessFactor = decodeFinite(node["roughnessFactor"], material.roughnessFactor);
+    material.alphaCutoff = decodeFinite(node["alphaCutoff"], material.alphaCutoff);
     if (node["alphaMode"]) {
         material.alphaMode = stringToMaterialAlphaMode(node["alphaMode"].as<std::string>());
     }
-    material.emissiveFactor = decodeVector3(node["emissiveFactor"]);
+    if (node["emissiveFactor"]) material.emissiveFactor = decodeVector3(node["emissiveFactor"]);
 
-    if (node["baseColorTexture"]) {
-        material.baseColorTexture = decodeTexture(node["baseColorTexture"]);
-    }
-
-    if (node["emissiveTexture"]) {
-        material.emissiveTexture = decodeTexture(node["emissiveTexture"]);
-    }
-
-    if (node["metallicRoughnessTexture"]) {
-        material.metallicRoughnessTexture = decodeTexture(node["metallicRoughnessTexture"]);
-    }
-
-    if (node["occlusionTexture"]) {
-        material.occlusionTexture = decodeTexture(node["occlusionTexture"]);
-    }
-
-    if (node["normalTexture"]) {
-        material.normalTexture = decodeTexture(node["normalTexture"]);
-    }
+    // Not merged: encodeMaterial omits an empty texture, so an absent key means none
+    auto texture = [&node](const char* name) {
+        return node[name] ? decodeTexture(node[name]) : Texture();
+    };
+    material.baseColorTexture = texture("baseColorTexture");
+    material.emissiveTexture = texture("emissiveTexture");
+    material.metallicRoughnessTexture = texture("metallicRoughnessTexture");
+    material.occlusionTexture = texture("occlusionTexture");
+    material.normalTexture = texture("normalTexture");
 
     if (node["baseColorTexCoord"]) material.baseColorTexCoord = node["baseColorTexCoord"].as<int>();
     if (node["metallicRoughnessTexCoord"]) material.metallicRoughnessTexCoord = node["metallicRoughnessTexCoord"].as<int>();
@@ -3459,7 +3460,7 @@ Material editor::Stream::decodeMaterial(const YAML::Node& node) {
     if (node["emissiveTexCoord"]) material.emissiveTexCoord = node["emissiveTexCoord"].as<int>();
     if (node["normalTexCoord"]) material.normalTexCoord = node["normalTexCoord"].as<int>();
 
-    material.name = node["name"].as<std::string>();
+    if (node["name"]) material.name = node["name"].as<std::string>();
 
     return material;
 }

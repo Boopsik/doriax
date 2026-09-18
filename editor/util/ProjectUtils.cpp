@@ -1662,6 +1662,9 @@ void editor::ProjectUtils::reconcileTrackedEntities(EntityRegistry* registry, st
 }
 
 ScriptPropertyValue editor::ProjectUtils::luaValueToScriptPropertyValue(lua_State* L, int idx, ScriptPropertyType type) {
+    // The vector cases push onto the stack, moving a relative index off the table
+    idx = lua_absindex(L, idx);
+
     switch (type) {
     case ScriptPropertyType::Bool:
         return ScriptPropertyValue(lua_toboolean(L, idx) != 0);

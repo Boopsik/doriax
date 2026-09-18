@@ -249,7 +249,7 @@ namespace doriax::editor {
         static std::vector<Entity> decodeEntity(const YAML::Node& entityNode, EntityRegistry* registry, std::vector<Entity>* entities = nullptr, Project* project = nullptr, SceneProject* sceneProject = nullptr, Entity parent = NULL_ENTITY, bool createNewIfExists = true, bool removeMissingComponents = false, std::unordered_map<Entity, Entity>* entityRemap = nullptr);
 
         static YAML::Node encodeMaterial(const Material& material, bool embedTextureData = true);
-        static Material decodeMaterial(const YAML::Node& node);
+        static Material decodeMaterial(const YAML::Node& node, const Material* oldMaterial = nullptr);
 
         static YAML::Node encodeComponents(const Entity entity, const EntityRegistry* registry, Signature signature);
         static void decodeComponents(Entity entity, Entity parent, EntityRegistry* registry, const YAML::Node& compNode);

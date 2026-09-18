@@ -366,6 +366,13 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .endClass();
 
     luabridge::getGlobalNamespace(L)
+        .beginClass<FunctionSubscribe<void(float,float,int)>>("FunctionSubscribe_V_FFI")
+        .addFunction("__call", &FunctionSubscribe<void(float,float,int)>::call)
+        .addFunction("call", &FunctionSubscribe<void(float,float,int)>::call)
+        .addFunction("add", (bool (FunctionSubscribe<void(float,float,int)>::*)(const std::string&, lua_State*))&FunctionSubscribe<void(float,float,int)>::add)
+        .endClass();
+
+    luabridge::getGlobalNamespace(L)
         .beginClass<FunctionSubscribe<void(int)>>("FunctionSubscribe_V_I")
         .addFunction("__call", &FunctionSubscribe<void(int)>::call)
         .addFunction("call", &FunctionSubscribe<void(int)>::call)
@@ -471,10 +478,10 @@ void LuaBinding::registerCoreClasses(lua_State *L){
         .endClass();
 
     luabridge::getGlobalNamespace(L)
-        .beginClass<FunctionSubscribe<void(Body3D, Body3D, Vector3, CollideShapeResult3D)>>("FunctionSubscribe_V_B3B3V3CR3")
-        .addFunction("__call", &FunctionSubscribe<void(Body3D, Body3D, Vector3, CollideShapeResult3D)>::call)
-        .addFunction("call", &FunctionSubscribe<void(Body3D, Body3D, Vector3, CollideShapeResult3D)>::call)
-        .addFunction("add", (bool (FunctionSubscribe<void(Body3D, Body3D, Vector3, CollideShapeResult3D)>::*)(const std::string&, lua_State*))&FunctionSubscribe<void(Body3D, Body3D, Vector3, CollideShapeResult3D)>::add)
+        .beginClass<FunctionSubscribe<bool(Body3D, Body3D, Vector3, CollideShapeResult3D)>>("FunctionSubscribe_B_B3B3V3CR3")
+        .addFunction("__call", &FunctionSubscribe<bool(Body3D, Body3D, Vector3, CollideShapeResult3D)>::call)
+        .addFunction("call", &FunctionSubscribe<bool(Body3D, Body3D, Vector3, CollideShapeResult3D)>::call)
+        .addFunction("add", (bool (FunctionSubscribe<bool(Body3D, Body3D, Vector3, CollideShapeResult3D)>::*)(const std::string&, lua_State*))&FunctionSubscribe<bool(Body3D, Body3D, Vector3, CollideShapeResult3D)>::add)
         .endClass();
 
     luabridge::getGlobalNamespace(L)
