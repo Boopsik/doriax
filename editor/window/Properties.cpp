@@ -8524,7 +8524,6 @@ void editor::Properties::drawScriptComponent(ComponentType cpType, SceneProject*
             }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
-            ImGui::SetCursorPos(cursorAfterHeader);
 
             if (removeClicked) {
                 removeScriptAtIndex();
@@ -8532,6 +8531,7 @@ void editor::Properties::drawScriptComponent(ComponentType cpType, SceneProject*
         }
 
         if (headerOpen && !removedScriptThisFrame) {
+            ImGui::SetCursorPos(cursorAfterHeader);
             ImGui::Unindent(indentation); // Unindent for content
 
             beginTable(cpType, getLabelSize("Script", false), "script_" + std::to_string(scriptIdx));
